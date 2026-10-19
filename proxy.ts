@@ -11,6 +11,8 @@ const PROTECTED_PREFIXES = [
   '/departments',
   '/rooms',
   '/faculty',
+  '/students',
+  '/sections',
   '/schedule',
   '/seating',
 ];
@@ -51,6 +53,8 @@ export const config = {
     '/departments/:path*',
     '/rooms/:path*',
     '/faculty/:path*',
+    '/students/:path*',
+    '/sections/:path*',
     '/schedule/:path*',
     '/seating/:path*',
     '/login',

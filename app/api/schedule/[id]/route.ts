@@ -30,17 +30,18 @@ export async function PUT(
       );
     }
 
-    if (pStart < 1 || pEnd > 8) {
+    const lunchAfter = typeof body.lunch_after_period === 'number' ? body.lunch_after_period : 5;
+    if (pStart < 1 || pEnd > 12) {
       return NextResponse.json(
-        { error: 'Invalid period range. Must be between 1 and 8.' },
+        { error: 'Invalid period range. Must be between 1 and 12.' },
         { status: 400 }
       );
     }
 
     // Check lunch recess cross
-    if (pStart <= 4 && pEnd >= 5) {
+    if (lunchAfter > 0 && pStart <= lunchAfter && pEnd > lunchAfter) {
       return NextResponse.json(
-        { error: 'Sessions cannot cross lunch recess (13:00 - 14:00).' },
+        { error: `Sessions cannot cross lunch recess (scheduled after period ${lunchAfter}).` },
         { status: 400 }
       );
     }

@@ -56,7 +56,140 @@ async function runVerification() {
   if (roomClashes > 0 || facultyClashes > 0) {
     throw new Error(`Collision Invariant Failed! Room clashes: ${roomClashes}, Faculty clashes: ${facultyClashes}`);
   }
-  console.log('   ✅ Collision-Free Invariant: 100% VERIFIED\n');
+  console.log('   ✅ Collision-Free Invariant: 100% VERIFIED');
+
+  // Verify Invariant: "For a faculty don't assign adjacent classes in diff sections"
+  console.log('   - Verifying No-Adjacent-Diff-Sections Invariant for Faculty...');
+  const allSessions = await query<{
+    faculty_id: string;
+    faculty_name: string;
+    day: string;
+    period_index: number;
+    span: number;
+    section_name: string;
+    room_id: string;
+  }>(`
+    SELECT cs.faculty_id, f.name as faculty_name, cs.day, cs.period_index, cs.span, cs.section_name, cs.room_id
+    FROM class_sessions cs
+    JOIN faculty f ON f.id = cs.faculty_id
+    ORDER BY cs.faculty_id, cs.day, cs.period_index
+  `);
+
+  let adjacentDiffSectionClashes = 0;
+  for (let i = 0; i < allSessions.length; i++) {
+    for (let j = i + 1; j < allSessions.length; j++) {
+      const s1 = allSessions[i];
+      const s2 = allSessions[j];
+      if (s1.faculty_id !== s2.faculty_id || s1.day !== s2.day) break;
+      if (s1.period_index + s1.span === s2.period_index) {
+        // Exclude lunch break separation (period 4 lunch recess)
+        if (s1.period_index + s1.span - 1 === 4) continue;
+        if (s1.section_name !== s2.section_name) {
+          console.error(`   ❌ Adjacent Diff Section Clash: ${s1.faculty_name} on ${s1.day} P${s1.period_index}(${s1.section_name}) -> P${s2.period_index}(${s2.section_name})`);
+          adjacentDiffSectionClashes++;
+        }
+      }
+    }
+  }
+
+  console.log(`   - Adjacent Different-Section Faculty Clashes: ${adjacentDiffSectionClashes}`);
+  if (adjacentDiffSectionClashes > 0) {
+    throw new Error(`Adjacent Section Invariant Failed! ${adjacentDiffSectionClashes} back-to-back cross-section clashes found.`);
+  }
+  console.log('   ✅ No-Adjacent-Diff-Sections Invariant: 100% VERIFIED');
+
+  // Verify Student Constraints:
+  // 1. No more than 4hour continuous classes or lab in 1 session (before or after lunch)
+  // 2. No more than 5 hour of teaching class in 1 day
+  // 3. No more than 7 hour of classes/lab in 1 day
+  // 4. Zero classes crossing or assigned in lunch recess
+  console.log('   - Verifying Student Workload & Session Invariants...');
+
+  const sectionDaySessions = new Map<string, typeof allSessions>();
+  for (const s of allSessions) {
+    const key = `${s.section_name}:${s.day}`;
+    if (!sectionDaySessions.has(key)) sectionDaySessions.set(key, []);
+    sectionDaySessions.get(key)!.push(s);
+  }
+
+  let studentContinuousViolations = 0;
+  let studentTeachingHoursViolations = 0;
+  let studentDailyTotalViolations = 0;
+  let lunchRecessViolations = 0;
+
+  for (const [key, sessList] of sectionDaySessions.entries()) {
+    let totalHours = 0;
+    let teachingHours = 0;
+    const occupiedPeriods = new Set<number>();
+
+    for (const s of sessList) {
+      totalHours += s.span;
+      if (s.span === 1) teachingHours += 1;
+
+      // Check lunch crossing (lunch after period 4)
+      const pStart = s.period_index;
+      const pEnd = s.period_index + s.span - 1;
+      if (pStart <= 4 && pEnd > 4) {
+        console.error(`   ❌ Lunch Recess Violation: ${s.section_name} on ${s.day} session spans P${pStart}-P${pEnd} crossing lunch!`);
+        lunchRecessViolations++;
+      }
+
+      for (let p = 0; p < s.span; p++) {
+        occupiedPeriods.add(s.period_index + p);
+      }
+    }
+
+    // Constraint 1: Max 7 hours classes/labs in 1 day
+    if (totalHours > 7) {
+      console.error(`   ❌ Student Daily Total Limit Violated: ${key} has ${totalHours} hours (Max 7)`);
+      studentDailyTotalViolations++;
+    }
+
+    // Constraint 2: Max 5 hours teaching (theory) class in 1 day
+    if (teachingHours > 5) {
+      console.error(`   ❌ Student Teaching Hours Limit Violated: ${key} has ${teachingHours} theory hours (Max 5)`);
+      studentTeachingHoursViolations++;
+    }
+
+    // Constraint 3: Max 4 hours continuous in 1 session (before lunch: 1..4, after lunch: 5..8+)
+    // Morning session:
+    let morningStreak = 0;
+    for (let p = 1; p <= 4; p++) {
+      if (occupiedPeriods.has(p)) {
+        morningStreak++;
+        if (morningStreak > 4) {
+          console.error(`   ❌ Continuous Hours Limit Violated in Morning: ${key} streak=${morningStreak}`);
+          studentContinuousViolations++;
+        }
+      } else {
+        morningStreak = 0;
+      }
+    }
+
+    // Afternoon session:
+    let afternoonStreak = 0;
+    for (let p = 5; p <= 12; p++) {
+      if (occupiedPeriods.has(p)) {
+        afternoonStreak++;
+        if (afternoonStreak > 4) {
+          console.error(`   ❌ Continuous Hours Limit Violated in Afternoon: ${key} streak=${afternoonStreak}`);
+          studentContinuousViolations++;
+        }
+      } else {
+        afternoonStreak = 0;
+      }
+    }
+  }
+
+  console.log(`   - Student Daily Total Violations (>7h): ${studentDailyTotalViolations}`);
+  console.log(`   - Student Theory Teaching Violations (>5h): ${studentTeachingHoursViolations}`);
+  console.log(`   - Student Continuous Session Violations (>4h): ${studentContinuousViolations}`);
+  console.log(`   - Lunch Recess Crossing Violations: ${lunchRecessViolations}`);
+
+  if (studentDailyTotalViolations > 0 || studentTeachingHoursViolations > 0 || studentContinuousViolations > 0 || lunchRecessViolations > 0) {
+    throw new Error('Student Workload / Recess Invariants Failed!');
+  }
+  console.log('   ✅ Student Workload & Session Invariants: 100% VERIFIED\n');
 
   // Test 3: Anti-Cheating Seating Engine Checkerboard Invariant
   console.log('3️⃣ Running Anti-Cheating Seating Interleaving Algorithm...');

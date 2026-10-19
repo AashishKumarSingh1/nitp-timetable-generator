@@ -32,9 +32,9 @@ export async function GET(req: NextRequest) {
       sql += ' AND cs.faculty_id = ?';
       params.push(facultyId);
     }
-    if (sectionName) {
-      sql += ' AND cs.section_name = ?';
-      params.push(sectionName);
+    if (sectionName && sectionName !== 'ALL' && sectionName !== 'all') {
+      sql += ' AND (cs.section_name = ? OR cs.section_name LIKE ? OR cs.section_name LIKE ?)';
+      params.push(sectionName, `%${sectionName}%`, `${sectionName}%`);
     }
 
     sql += ' ORDER BY cs.day ASC, cs.period_index ASC';
@@ -72,17 +72,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (pStart < 1 || pEnd > 8) {
+    const lunchAfter = typeof body.lunch_after_period === 'number' ? body.lunch_after_period : 5;
+
+    if (pStart < 1 || pEnd > 12) {
       return NextResponse.json(
-        { error: 'Invalid period range. Must be between 1 and 8.' },
+        { error: 'Invalid period range. Must be between 1 and 12.' },
         { status: 400 }
       );
     }
 
-    // Check lunch recess cross (Lunch is between period 4 and period 5: 13:00 - 14:00)
-    if (pStart <= 4 && pEnd >= 5) {
+    // Check lunch recess cross if configured
+    if (lunchAfter > 0 && pStart <= lunchAfter && pEnd > lunchAfter) {
       return NextResponse.json(
-        { error: 'Sessions cannot cross lunch recess (13:00 - 14:00). Please schedule within morning (1-4) or afternoon (5-8).' },
+        { error: `Sessions cannot cross lunch recess (scheduled after period ${lunchAfter}).` },
         { status: 400 }
       );
     }

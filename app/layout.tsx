@@ -6,6 +6,15 @@ import { AppShell } from '@/components/layout/AppShell';
 export const metadata: Metadata = {
   title: 'NITP Scheduler & Seating Engine',
   description: 'Single-College Academic Timetable Generator & Anti-Cheating Seating System',
+  icons: {
+    icon: [
+      { url: '/logo.png', type: 'image/png' },
+      { url: '/icon.png', type: 'image/png', sizes: '32x32' },
+      { url: '/favicon.ico', sizes: 'any' },
+    ],
+    shortcut: '/logo.png',
+    apple: '/apple-touch-icon.png',
+  },
 };
 
 export default function RootLayout({
