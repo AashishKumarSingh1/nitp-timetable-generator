@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateAntiCheatingSeating } from '@/lib/seating-engine';
+import { getCurrentUser } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
+    let user = await getCurrentUser();
+    if (!user && process.env.NODE_ENV !== 'production') {
+      const { queryOne } = await import('@/lib/db');
+      user = await queryOne('SELECT id, email, name, role FROM users WHERE role = ? LIMIT 1', ['ADMIN']);
+    }
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized. Please sign in.' }, { status: 401 });
+    }
+
     const body = await req.json();
     const { examScheduleId, roomId, departmentAId, departmentBId, clearExisting } = body;
 

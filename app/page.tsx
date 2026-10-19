@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth';
 import Link from 'next/link';
-import { Calendar, ArrowRight, ShieldCheck, Users, DoorOpen, Armchair, GraduationCap, Sparkles } from 'lucide-react';
+import Image from 'next/image';
+import { Calendar, ArrowRight, ShieldCheck, Users, DoorOpen, Armchair, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 
@@ -23,8 +24,15 @@ export default async function HomePage() {
         {/* Navigation Header */}
         <header className="flex items-center justify-between pb-6 border-b border-zinc-800/80">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-red-700 to-rose-950 flex items-center justify-center font-bold text-white shadow-md border border-red-600/40">
-              <GraduationCap className="w-5 h-5 text-red-100" />
+            <div className="w-11 h-11 flex items-center justify-center shrink-0">
+              <Image
+                src="/logo.png"
+                alt="NIT Patna Official Logo"
+                width={44}
+                height={44}
+                className="w-11 h-11 object-contain drop-shadow-md"
+                priority
+              />
             </div>
             <div>
               <h1 className="font-extrabold text-lg tracking-tight uppercase text-white">NIT Patna</h1>

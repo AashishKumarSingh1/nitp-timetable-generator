@@ -101,10 +101,37 @@ export async function generateAntiCheatingSeating(params: {
       const isEvenParity = (r + c) % 2 === 0;
       let targetStudent: SeatingStudent | undefined;
 
+      // Safe checkerboard assignment with neighbor clash prevention
       if (isEvenParity) {
-        targetStudent = queueA.shift() || queueB.shift();
+        if (queueA.length > 0) {
+          targetStudent = queueA.shift();
+        } else if (queueB.length > 0) {
+          // Check if placing candidate from Dept B clashes with left or top neighbor
+          const left = c > 0 ? matrix[r][c - 1] : null;
+          const top = r > 0 ? matrix[r - 1][c] : null;
+          const candidate = queueB[0];
+          const hasClash =
+            (left && left.departmentCode === candidate.departmentCode) ||
+            (top && top.departmentCode === candidate.departmentCode);
+          if (!hasClash) {
+            targetStudent = queueB.shift();
+          }
+        }
       } else {
-        targetStudent = queueB.shift() || queueA.shift();
+        if (queueB.length > 0) {
+          targetStudent = queueB.shift();
+        } else if (queueA.length > 0) {
+          // Check if placing candidate from Dept A clashes with left or top neighbor
+          const left = c > 0 ? matrix[r][c - 1] : null;
+          const top = r > 0 ? matrix[r - 1][c] : null;
+          const candidate = queueA[0];
+          const hasClash =
+            (left && left.departmentCode === candidate.departmentCode) ||
+            (top && top.departmentCode === candidate.departmentCode);
+          if (!hasClash) {
+            targetStudent = queueA.shift();
+          }
+        }
       }
 
       if (targetStudent) {

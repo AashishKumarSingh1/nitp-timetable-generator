@@ -2,8 +2,9 @@
 
 import React, { useState, Suspense } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { GraduationCap, ArrowRight, Sparkles, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Sparkles, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
@@ -146,8 +147,15 @@ export default function LoginPage() {
 
       <div className="w-full max-w-md relative z-10">
         <div className="text-center mb-7">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-red-700 to-rose-950 border border-red-600/40 text-red-100 shadow-xl mb-3.5">
-            <GraduationCap className="w-7 h-7" />
+          <div className="inline-flex items-center justify-center w-16 h-16 mb-3.5">
+            <Image
+              src="/logo.png"
+              alt="NIT Patna Official Logo"
+              width={64}
+              height={64}
+              className="w-16 h-16 object-contain drop-shadow-lg"
+              priority
+            />
           </div>
           <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl uppercase">
             NIT Patna

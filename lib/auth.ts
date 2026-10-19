@@ -44,6 +44,14 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   }
 }
 
+export async function requireAuth(): Promise<AuthUser> {
+  const user = await getCurrentUser();
+  if (!user) {
+    throw new Error('UNAUTHORIZED');
+  }
+  return user;
+}
+
 export async function setSessionCookie(token: string) {
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, token, {

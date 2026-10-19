@@ -63,14 +63,17 @@ export async function GET(req: NextRequest) {
     if (sections.length === 0 && !departmentId) {
       const depts = await query<{ id: string; code: string }>('SELECT id, code FROM departments LIMIT 5');
       for (const dept of depts) {
-        const sAId = crypto.randomUUID();
-        const sBId = crypto.randomUUID();
-        await execute(
-          `INSERT OR IGNORE INTO sections (id, name, department_id, semester, strength, academic_year)
-           VALUES (?, 'Section A', ?, 3, 60, '2026-27'),
-                  (?, 'Section B', ?, 3, 55, '2026-27')`,
-          [sAId, dept.id, sBId, dept.id]
-        );
+        const existing = await query<{ id: string }>('SELECT id FROM sections WHERE department_id = ? AND name = ?', [dept.id, 'Section A']);
+        if (existing.length === 0) {
+          const sAId = crypto.randomUUID();
+          const sBId = crypto.randomUUID();
+          await execute(
+            `INSERT INTO sections (id, name, department_id, semester, strength, academic_year)
+             VALUES (?, 'Section A', ?, 3, 60, '2026-27'),
+                    (?, 'Section B', ?, 3, 55, '2026-27')`,
+            [sAId, dept.id, sBId, dept.id]
+          );
+        }
       }
       sections = await query(sql, params);
     }

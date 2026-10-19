@@ -27,6 +27,9 @@ import {
   Sliders,
   Check,
   ExternalLink,
+  FlaskConical,
+  Utensils,
+  ShieldCheck,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -94,11 +97,10 @@ const NITP_OFFICIAL_PERIODS: PeriodSlot[] = [
   { index: 2, time: '9:30 - 10:25', label: '2' },
   { index: 3, time: '10:30 - 11:25', label: '3' },
   { index: 4, time: '11:30 - 12:25', label: '4' },
-  { index: 5, time: '12:30 - 13:25', label: '5' },
-  { index: 6, time: '13:30 - 14:25', label: '6' },
-  { index: 7, time: '14:30 - 15:25', label: '7' },
-  { index: 8, time: '15:30 - 16:25', label: '8' },
-  { index: 9, time: '16:30 - 17:25', label: '9' },
+  { index: 5, time: '13:30 - 14:25', label: '5' },
+  { index: 6, time: '14:30 - 15:25', label: '6' },
+  { index: 7, time: '15:30 - 16:25', label: '7' },
+  { index: 8, time: '16:30 - 17:25', label: '8' },
 ];
 
 const STANDARD_8_PERIODS: PeriodSlot[] = [
@@ -116,9 +118,9 @@ const DEFAULT_TIMING_CONFIG: TimetableTimingConfig = {
   preset: 'NITP_OFFICIAL',
   periods: NITP_OFFICIAL_PERIODS,
   hasLunchBreak: true,
-  lunchAfterPeriod: 5,
-  lunchTime: '12:30 - 13:25',
-  lunchLabel: 'LUNCH BREAK',
+  lunchAfterPeriod: 4,
+  lunchTime: '12:25 - 13:30',
+  lunchLabel: 'LUNCH RECESS',
 };
 
 const DAYS: ('MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY')[] = [
@@ -131,13 +133,106 @@ const DAYS: ('MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATUR
 ];
 
 const DAY_ABBR: Record<string, string> = {
-  MONDAY: 'Mo',
-  TUESDAY: 'Tu',
-  WEDNESDAY: 'We',
-  THURSDAY: 'Th',
-  FRIDAY: 'Fr',
-  SATURDAY: 'Sa',
+  MONDAY: 'Mon',
+  TUESDAY: 'Tue',
+  WEDNESDAY: 'Wed',
+  THURSDAY: 'Thu',
+  FRIDAY: 'Fri',
+  SATURDAY: 'Sat',
 };
+
+export interface CourseTheme {
+  border: string;
+  bg: string;
+  text: string;
+  badge: string;
+  codeColor: string;
+  indicator: string;
+  dotColor: string;
+}
+
+export const COURSE_COLOR_PALETTES: CourseTheme[] = [
+  // 0. Sapphire / Indigo
+  {
+    border: 'border-indigo-200/90 hover:border-indigo-400',
+    bg: 'bg-gradient-to-br from-indigo-50/95 to-blue-50/70',
+    text: 'text-indigo-950',
+    badge: 'bg-indigo-100 text-indigo-900 border-indigo-200',
+    codeColor: 'text-indigo-900',
+    indicator: 'bg-indigo-600',
+    dotColor: 'bg-indigo-500',
+  },
+  // 1. Emerald / Teal
+  {
+    border: 'border-emerald-200/90 hover:border-emerald-400',
+    bg: 'bg-gradient-to-br from-emerald-50/95 to-teal-50/70',
+    text: 'text-emerald-950',
+    badge: 'bg-emerald-100 text-emerald-900 border-emerald-200',
+    codeColor: 'text-emerald-900',
+    indicator: 'bg-emerald-600',
+    dotColor: 'bg-emerald-500',
+  },
+  // 2. Amber / Bronze
+  {
+    border: 'border-amber-200/90 hover:border-amber-400',
+    bg: 'bg-gradient-to-br from-amber-50/95 to-orange-50/70',
+    text: 'text-amber-950',
+    badge: 'bg-amber-100 text-amber-900 border-amber-200',
+    codeColor: 'text-amber-900',
+    indicator: 'bg-amber-600',
+    dotColor: 'bg-amber-500',
+  },
+  // 3. Violet / Amethyst
+  {
+    border: 'border-violet-200/90 hover:border-violet-400',
+    bg: 'bg-gradient-to-br from-violet-50/95 to-purple-50/70',
+    text: 'text-violet-950',
+    badge: 'bg-violet-100 text-violet-900 border-violet-200',
+    codeColor: 'text-violet-900',
+    indicator: 'bg-violet-600',
+    dotColor: 'bg-violet-500',
+  },
+  // 4. Sky / Cyan
+  {
+    border: 'border-sky-200/90 hover:border-sky-400',
+    bg: 'bg-gradient-to-br from-sky-50/95 to-cyan-50/70',
+    text: 'text-sky-950',
+    badge: 'bg-sky-100 text-sky-900 border-sky-200',
+    codeColor: 'text-sky-900',
+    indicator: 'bg-sky-600',
+    dotColor: 'bg-sky-500',
+  },
+  // 5. Rose / Crimson
+  {
+    border: 'border-rose-200/90 hover:border-rose-400',
+    bg: 'bg-gradient-to-br from-rose-50/95 to-pink-50/70',
+    text: 'text-rose-950',
+    badge: 'bg-rose-100 text-rose-900 border-rose-200',
+    codeColor: 'text-rose-900',
+    indicator: 'bg-rose-600',
+    dotColor: 'bg-rose-500',
+  },
+];
+
+export const LAB_THEME: CourseTheme = {
+  border: 'border-teal-300 hover:border-teal-500 ring-1 ring-teal-200/70',
+  bg: 'bg-gradient-to-br from-teal-50/95 via-cyan-50/80 to-sky-50/60',
+  text: 'text-teal-950',
+  badge: 'bg-teal-100 text-teal-950 border-teal-300 font-bold',
+  codeColor: 'text-teal-900',
+  indicator: 'bg-teal-600',
+  dotColor: 'bg-teal-500',
+};
+
+export function getCourseTheme(courseCode: string, isLab: boolean): CourseTheme {
+  if (isLab) return LAB_THEME;
+  let hash = 0;
+  for (let i = 0; i < courseCode.length; i++) {
+    hash = courseCode.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % COURSE_COLOR_PALETTES.length;
+  return COURSE_COLOR_PALETTES[index];
+}
 
 export default function SchedulePage() {
   const { toast } = useToast();
@@ -150,7 +245,7 @@ export default function SchedulePage() {
 
   // Filter Selection
   const [filterMode, setFilterMode] = useState<'SECTION' | 'CLASSROOM' | 'FACULTY'>('SECTION');
-  const [selectedSection, setSelectedSection] = useState('Section A');
+  const [selectedSection, setSelectedSection] = useState('CSE - Section A');
   const [selectedRoom, setSelectedRoom] = useState('');
   const [selectedFaculty, setSelectedFaculty] = useState('');
 
@@ -158,7 +253,7 @@ export default function SchedulePage() {
   const [rooms, setRooms] = useState<FilterOption[]>([]);
   const [faculty, setFaculty] = useState<FilterOption[]>([]);
   const [courses, setCourses] = useState<CourseOption[]>([]);
-  const [sections, setSectionsList] = useState<string[]>(['Section A', 'Section B']);
+  const [sections, setSectionsList] = useState<string[]>(['CSE - Section A', 'CSE - Section B']);
 
   // Working days (5 or 6)
   const [workingDays, setWorkingDays] = useState<5 | 6>(5);
@@ -265,11 +360,22 @@ export default function SchedulePage() {
         setCourses(cData.courses);
       }
       if (sRes.ok && sData.sections?.length > 0) {
-        const secNames = Array.from(new Set(sData.sections.map((s: any) => s.name))) as string[];
+        const secNames = Array.from(
+          new Set(
+            sData.sections.map((s: any) =>
+              s.department_code && !s.name.toUpperCase().startsWith(s.department_code.toUpperCase())
+                ? `${s.department_code} - ${s.name}`
+                : s.name
+            )
+          )
+        ) as string[];
+        secNames.sort((a, b) => {
+          if (a.startsWith('CSE') && !b.startsWith('CSE')) return -1;
+          if (!a.startsWith('CSE') && b.startsWith('CSE')) return 1;
+          return a.localeCompare(b);
+        });
         setSectionsList(secNames);
-        if (!secNames.includes(selectedSection)) {
-          setSelectedSection(secNames[0]);
-        }
+        setSelectedSection((prev) => (secNames.includes(prev) ? prev : secNames[0]));
         if (!exportSpecificSection) {
           setExportSpecificSection(secNames[0]);
         }
@@ -509,6 +615,7 @@ export default function SchedulePage() {
         period_index: formPeriodIndex,
         span: formSpan,
         is_pinned: formIsPinned ? 1 : 0,
+        lunch_after_period: timingConfig.hasLunchBreak ? timingConfig.lunchAfterPeriod : 0,
       };
 
       let res;
@@ -591,6 +698,72 @@ export default function SchedulePage() {
   const lunchAfter = timingConfig.hasLunchBreak ? timingConfig.lunchAfterPeriod : -1;
   const morningPeriods = lunchAfter > 0 ? timingConfig.periods.slice(0, lunchAfter) : timingConfig.periods;
   const afternoonPeriods = lunchAfter > 0 ? timingConfig.periods.slice(lunchAfter) : [];
+
+  // Target summary metrics for active view
+  const targetMetrics = useMemo(() => {
+    const totalSessions = sessions.length;
+    const totalPeriods = sessions.reduce((acc, s) => acc + (s.span || 1), 0);
+    const theoryPeriods = sessions
+      .filter((s) => s.span === 1 && s.room_type !== 'LAB')
+      .reduce((acc, s) => acc + (s.span || 1), 0);
+    const labPeriods = sessions
+      .filter((s) => s.span > 1 || s.room_type === 'LAB')
+      .reduce((acc, s) => acc + (s.span || 1), 0);
+
+    // Unique courses
+    const courseMap = new Map<string, { code: string; name: string; faculty: string; isLab: boolean }>();
+    for (const s of sessions) {
+      if (!courseMap.has(s.course_code)) {
+        courseMap.set(s.course_code, {
+          code: s.course_code,
+          name: s.course_name,
+          faculty: s.faculty_name,
+          isLab: s.span > 1 || s.room_type === 'LAB',
+        });
+      }
+    }
+    const uniqueCourses = Array.from(courseMap.values());
+
+    // Home classroom calculation (room used most frequently for theory)
+    const roomCounts: Record<string, number> = {};
+    for (const s of sessions) {
+      if (s.span === 1 && s.room_type !== 'LAB') {
+        roomCounts[s.room_code] = (roomCounts[s.room_code] || 0) + 1;
+      }
+    }
+    const homeClassroom = Object.entries(roomCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'CR-TBD';
+
+    let title = '';
+    let subtitle = '';
+    let badgeLabel = '';
+    if (filterMode === 'SECTION') {
+      title = selectedSection;
+      subtitle = 'Student Cohort Timetable';
+      badgeLabel = `Home Class: ${homeClassroom}`;
+    } else if (filterMode === 'FACULTY') {
+      const fac = faculty.find((f) => f.id === selectedFaculty);
+      title = fac ? `${fac.name} (${fac.code})` : 'Faculty Schedule';
+      subtitle = 'Faculty Teaching Allocation';
+      badgeLabel = fac?.type ? `Role: ${fac.type}` : 'Faculty Member';
+    } else {
+      const rm = rooms.find((r) => r.id === selectedRoom);
+      title = rm ? `${rm.code} - ${rm.name}` : 'Classroom Schedule';
+      subtitle = rm ? `Capacity: ${rm.capacity || 60} • Type: ${rm.type}` : 'Room Timetable';
+      badgeLabel = rm?.type || 'Classroom';
+    }
+
+    return {
+      title,
+      subtitle,
+      badgeLabel,
+      totalSessions,
+      totalPeriods,
+      theoryPeriods,
+      labPeriods,
+      uniqueCourses,
+      homeClassroom,
+    };
+  }, [sessions, filterMode, selectedSection, selectedFaculty, selectedRoom, faculty, rooms]);
 
   // Group all sessions by Section, by Faculty, and by Room for the export booklet
   const sessionsBySection = useMemo(() => {
@@ -696,9 +869,287 @@ export default function SchedulePage() {
   ]);
 
   // =========================================================================
-  // Isolated Print Handler: Guarantees ONLY the timetable content is printed
-  // Never prints sidebar, navbars, modals, or app layout wrappers
+  // PURE VECTOR PDF GENERATOR (Zero Browser Print Dialog Needed)
+  // Generates razor-sharp, publication-ready vector PDFs directly to device.
+  // 100% immune to html2canvas CSS Color 4 (lab / oklch) parser errors.
   // =========================================================================
+  const renderAscSheetToPdf = (
+    pdf: any,
+    sheet: {
+      title: string;
+      type: 'SECTION' | 'FACULTY' | 'ROOM';
+      sessions: ClassSession[];
+    },
+    options: {
+      instituteHeader: string;
+      footerDate: string;
+      footerTag: string;
+      periods: PeriodSlot[];
+      days: ('MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY')[];
+    }
+  ) => {
+    const pageWidth = 297;
+    const marginX = 14;
+    const tableStartY = 24;
+    const tableHeight = 172;
+    const tableWidth = pageWidth - marginX * 2; // 269mm
+    const dayColWidth = 18;
+    const headerHeight = 13;
+
+    const days = options.days || ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
+    const periods = options.periods;
+
+    const periodColWidth = (tableWidth - dayColWidth) / periods.length;
+    const dayRowHeight = (tableHeight - headerHeight) / days.length;
+
+    // 1. Large Bold Centered Title (e.g. CSE - DUAL-DEGREE AI)
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(18);
+    pdf.setTextColor(0, 0, 0);
+    pdf.text(sheet.title.toUpperCase(), pageWidth / 2, 15.5, { align: 'center' });
+
+    // 2. Institute Subtitle (Left aligned with table edge)
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8.5);
+    pdf.setTextColor(30, 30, 30);
+    pdf.text(options.instituteHeader, marginX, 21.5);
+
+    // 3. Outer Table Box (0.6mm solid black border)
+    pdf.setDrawColor(0, 0, 0);
+    pdf.setLineWidth(0.6);
+    pdf.rect(marginX, tableStartY, tableWidth, tableHeight);
+
+    // 4. Corner Box (Empty top-left cell)
+    pdf.setLineWidth(0.35);
+    pdf.rect(marginX, tableStartY, dayColWidth, headerHeight);
+
+    // 5. Period Headers (Period number on top, time range below)
+    periods.forEach((p, i) => {
+      const x = marginX + dayColWidth + i * periodColWidth;
+      pdf.setDrawColor(0, 0, 0);
+      pdf.setLineWidth(0.35);
+      pdf.rect(x, tableStartY, periodColWidth, headerHeight);
+
+      // Period index/number
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(11);
+      pdf.setTextColor(0, 0, 0);
+      pdf.text(String(p.label || p.index), x + periodColWidth / 2, tableStartY + 5.2, { align: 'center' });
+
+      // Period time range
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(50, 50, 50);
+      pdf.text(p.time, x + periodColWidth / 2, tableStartY + 10.2, { align: 'center' });
+    });
+
+    // 6. Build lookup matrix for sessions & multi-period spans
+    const matrix = new Map<string, ClassSession>();
+    const spanned = new Set<string>();
+    for (const s of sheet.sessions) {
+      matrix.set(`${s.day}:${s.period_index}`, s);
+      if (s.span > 1) {
+        for (let p = 1; p < s.span; p++) {
+          spanned.add(`${s.day}:${s.period_index + p}`);
+        }
+      }
+    }
+
+    // 7. Days and Period Cells
+    days.forEach((day, dIdx) => {
+      const y = tableStartY + headerHeight + dIdx * dayRowHeight;
+
+      // Day Column Header (e.g. Mon, Tue, Wed, Thu, Fri)
+      pdf.setDrawColor(0, 0, 0);
+      pdf.setLineWidth(0.35);
+      pdf.rect(marginX, y, dayColWidth, dayRowHeight);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(14);
+      pdf.setTextColor(0, 0, 0);
+      pdf.text(
+        DAY_ABBR[day] || day.slice(0, 3),
+        marginX + dayColWidth / 2,
+        y + dayRowHeight / 2 + 2,
+        { align: 'center' }
+      );
+
+      // Period cells in this day
+      periods.forEach((p, pIdx) => {
+        const cellKey = `${day}:${p.index}`;
+        if (spanned.has(cellKey)) return;
+
+        const session = matrix.get(cellKey);
+        const span = session && session.span ? session.span : 1;
+        const x = marginX + dayColWidth + pIdx * periodColWidth;
+        const cellW = periodColWidth * span;
+
+        // Draw cell border
+        pdf.setDrawColor(0, 0, 0);
+        pdf.setLineWidth(0.35);
+        pdf.rect(x, y, cellW, dayRowHeight);
+
+        if (session) {
+          pdf.setTextColor(0, 0, 0);
+          if (sheet.type === 'SECTION') {
+            // Top-left: Room Code (e.g. EC-LAB-1, LH-101)
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(8.5);
+            pdf.text(session.room_code || '', x + 2.5, y + 5.5);
+
+            // Center: Course Code (e.g. CS305L, CS301)
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(11.5);
+            pdf.text(
+              (session.course_code || '').toUpperCase(),
+              x + cellW / 2,
+              y + dayRowHeight / 2 + 1,
+              { align: 'center' }
+            );
+
+            // Bottom-right: Faculty Name (auto-adjust size if long)
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(8);
+            let fac = session.faculty_name || '';
+            if (pdf.getTextWidth(fac) > cellW - 5) {
+              pdf.setFontSize(7);
+              if (pdf.getTextWidth(fac) > cellW - 5) {
+                fac = session.faculty_code || fac;
+              }
+            }
+            pdf.text(fac, x + cellW - 2.5, y + dayRowHeight - 3.5, { align: 'right' });
+
+          } else if (sheet.type === 'FACULTY') {
+            // Top-left: Course Code
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(8.5);
+            pdf.text(session.course_code || '', x + 2.5, y + 5.5);
+
+            // Top-right: Room Code
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(8);
+            pdf.text(session.room_code || '', x + cellW - 2.5, y + 5.5, { align: 'right' });
+
+            // Center: Section Name
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(11.5);
+            pdf.text(session.section_name || '', x + cellW / 2, y + dayRowHeight / 2 + 1, { align: 'center' });
+
+            // Bottom-right: Room Name if different
+            if (session.room_name && session.room_name !== session.room_code) {
+              pdf.setFont('helvetica', 'normal');
+              pdf.setFontSize(7);
+              pdf.setTextColor(70, 70, 70);
+              let rName = session.room_name;
+              if (pdf.getTextWidth(rName) > cellW - 5) {
+                rName = rName.slice(0, 18) + '...';
+              }
+              pdf.text(rName, x + cellW - 2.5, y + dayRowHeight - 3.5, { align: 'right' });
+            }
+          } else {
+            // ROOM
+            // Top-left: Course Code
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(8.5);
+            pdf.text(session.course_code || '', x + 2.5, y + 5.5);
+
+            // Top-right: Faculty Name
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(8);
+            let fName = session.faculty_name || '';
+            if (pdf.getTextWidth(fName) > cellW / 2) {
+              fName = session.faculty_code || fName;
+            }
+            pdf.text(fName, x + cellW - 2.5, y + 5.5, { align: 'right' });
+
+            // Center: Section Name
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(11.5);
+            pdf.text(session.section_name || '', x + cellW / 2, y + dayRowHeight / 2 + 1, { align: 'center' });
+
+            // Bottom-right: Course Name
+            if (session.course_name) {
+              pdf.setFont('helvetica', 'normal');
+              pdf.setFontSize(7);
+              pdf.setTextColor(70, 70, 70);
+              let cName = session.course_name;
+              if (pdf.getTextWidth(cName) > cellW - 5) {
+                cName = cName.slice(0, 20) + '...';
+              }
+              pdf.text(cName, x + cellW - 2.5, y + dayRowHeight - 3.5, { align: 'right' });
+            }
+          }
+        }
+      });
+    });
+
+    // 8. Footer line (Timetable generated: ... | aSc Timetables)
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8.5);
+    pdf.setTextColor(40, 40, 40);
+    pdf.text(`Timetable generated: ${options.footerDate}`, marginX, 201);
+    pdf.text(options.footerTag, marginX + tableWidth, 201, { align: 'right' });
+  };
+
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [exportPdfProgress, setExportPdfProgress] = useState('');
+
+  const handleDirectPdfDownload = async () => {
+    setIsExportingPdf(true);
+    setExportPdfProgress('Preparing vector PDF engine...');
+    try {
+      const { jsPDF } = await import('jspdf');
+
+      if (exportSheets.length === 0) {
+        toast.error('No sheets to export');
+        return;
+      }
+
+      // Initialize landscape A4 jsPDF (297mm x 210mm)
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+        compress: true,
+      });
+
+      for (let i = 0; i < exportSheets.length; i++) {
+        setExportPdfProgress(`Drawing sheet ${i + 1} of ${exportSheets.length}...`);
+        if (i > 0) {
+          pdf.addPage('a4', 'landscape');
+        }
+        renderAscSheetToPdf(pdf, exportSheets[i], {
+          instituteHeader: exportInstituteHeader,
+          footerDate: exportFooterDate,
+          footerTag: exportFooterTag,
+          periods: timingConfig.periods,
+          days: displayDays,
+        });
+      }
+
+      setExportPdfProgress('Saving PDF file...');
+      const targetName =
+        exportScope === 'SPECIFIC'
+          ? (exportSheets[0]?.title || 'Timetable').replace(/[^a-zA-Z0-9_-]/g, '_')
+          : `All_${exportSheets.length}_Sheets`;
+
+      const filename = `NITP_Official_${exportType}_${targetName}.pdf`;
+      pdf.save(filename);
+      toast.success(`Downloaded ${filename} successfully!`);
+    } catch (err: any) {
+      console.error('Direct PDF export failed:', err);
+      toast.error('Failed to generate PDF: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsExportingPdf(false);
+      setExportPdfProgress('');
+    }
+  };
+
+  // Expose to window so standalone tabs can trigger direct download without browser print
+  useEffect(() => {
+    (window as any).__downloadTimetablePdfDirect = handleDirectPdfDownload;
+  }, [handleDirectPdfDownload]);
+
+  // Isolated Print Handler: Optional browser print fallback
   const handlePrintIsolated = () => {
     const printContainer = document.getElementById('asc-official-print-container');
     if (!printContainer) {
@@ -708,7 +1159,6 @@ export default function SchedulePage() {
 
     const contentHtml = printContainer.innerHTML;
 
-    // Use an invisible print iframe for complete isolation
     let iframe = document.getElementById('asc-print-isolated-iframe') as HTMLIFrameElement | null;
     if (!iframe) {
       iframe = document.createElement('iframe');
@@ -796,7 +1246,6 @@ export default function SchedulePage() {
     `);
     doc.close();
 
-    // Trigger print from the isolated frame
     setTimeout(() => {
       try {
         iframe?.contentWindow?.focus();
@@ -807,14 +1256,14 @@ export default function SchedulePage() {
     }, 200);
   };
 
-  // Open in a fresh standalone clean window
+  // Open in a fresh standalone clean window with Direct PDF Download
   const handleOpenInNewWindow = () => {
     const printContainer = document.getElementById('asc-official-print-container');
     if (!printContainer) return;
 
     const win = window.open('', '_blank');
     if (!win) {
-      toast.error('Popup blocked by browser. Please allow popups or use Direct Print.');
+      toast.error('Popup blocked by browser. Please allow popups or use Direct PDF Download.');
       return;
     }
 
@@ -823,6 +1272,11 @@ export default function SchedulePage() {
       <html>
         <head>
           <title>${exportType === 'SECTION' ? 'Class' : exportType === 'FACULTY' ? 'Teacher' : 'Room'} Timetable - NIT Patna</title>
+          <link rel="icon" type="image/png" href="/logo.png" />
+          <link rel="icon" type="image/png" sizes="32x32" href="/icon.png" />
+          <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+          <link rel="shortcut icon" href="/logo.png" />
+          <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
           <style>
             @page { size: landscape; margin: 6mm 8mm; }
             * { box-sizing: border-box; }
@@ -846,15 +1300,21 @@ export default function SchedulePage() {
               font-size: 13px;
               box-shadow: 0 2px 8px rgba(0,0,0,0.15);
             }
-            .print-bar button {
-              background: #b91c1c;
+            .btn-download {
+              background: #15803d;
               color: white;
               border: none;
-              padding: 6px 16px;
+              padding: 7px 18px;
               border-radius: 8px;
               font-weight: bold;
+              font-size: 13px;
               cursor: pointer;
+              display: inline-flex;
+              align-items: center;
+              gap: 6px;
+              transition: background 0.15s;
             }
+            .btn-download:hover { background: #166534; }
             .asc-timetable-sheet {
               background: #ffffff;
               padding: 16px;
@@ -884,13 +1344,226 @@ export default function SchedulePage() {
               .asc-timetable-sheet { border: none !important; box-shadow: none !important; margin: 0 !important; padding: 2mm 0 !important; }
             }
           </style>
+          <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
         </head>
         <body>
           <div class="print-bar">
-            <span>NIT Patna Official Timetable Export · ${exportSheets.length} Sheet(s)</span>
-            <button onclick="window.print()">Print / Save PDF</button>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <img src="/logo.png" alt="NIT Patna Official Logo" style="width: 24px; height: 24px; object-fit: contain; flex-shrink: 0;" />
+              <span style="font-weight: 600; font-size: 13px; letter-spacing: -0.01em;">NIT Patna Official Timetable Export · ${exportSheets.length} Sheet(s)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <button id="dl-pdf-btn" class="btn-download" onclick="triggerDirectDownload()">
+                ⬇️ Download PDF Directly
+              </button>
+            </div>
           </div>
           ${printContainer.innerHTML}
+
+          <script>
+            const exportData = ${JSON.stringify({
+              sheets: exportSheets,
+              instituteHeader: exportInstituteHeader,
+              footerDate: exportFooterDate,
+              footerTag: exportFooterTag,
+              periods: timingConfig.periods,
+              days: displayDays,
+              exportType,
+              targetName:
+                exportScope === 'SPECIFIC'
+                  ? (exportSheets[0]?.title || 'Timetable').replace(/[^a-zA-Z0-9_-]/g, '_')
+                  : `All_${exportSheets.length}_Sheets`,
+            })};
+
+            const DAY_ABBR = {
+              MONDAY: 'Mon',
+              TUESDAY: 'Tue',
+              WEDNESDAY: 'Wed',
+              THURSDAY: 'Thu',
+              FRIDAY: 'Fri',
+              SATURDAY: 'Sat',
+            };
+
+            function renderSheetVector(pdf, sheet, options) {
+              const pageWidth = 297;
+              const marginX = 14;
+              const tableStartY = 24;
+              const tableHeight = 172;
+              const tableWidth = pageWidth - marginX * 2;
+              const dayColWidth = 18;
+              const headerHeight = 13;
+              const days = options.days;
+              const periods = options.periods;
+              const periodColWidth = (tableWidth - dayColWidth) / periods.length;
+              const dayRowHeight = (tableHeight - headerHeight) / days.length;
+
+              pdf.setFont('helvetica', 'bold');
+              pdf.setFontSize(18);
+              pdf.setTextColor(0, 0, 0);
+              pdf.text(sheet.title.toUpperCase(), pageWidth / 2, 15.5, { align: 'center' });
+
+              pdf.setFont('helvetica', 'normal');
+              pdf.setFontSize(8.5);
+              pdf.setTextColor(30, 30, 30);
+              pdf.text(options.instituteHeader, marginX, 21.5);
+
+              pdf.setDrawColor(0, 0, 0);
+              pdf.setLineWidth(0.6);
+              pdf.rect(marginX, tableStartY, tableWidth, tableHeight);
+
+              pdf.setLineWidth(0.35);
+              pdf.rect(marginX, tableStartY, dayColWidth, headerHeight);
+
+              periods.forEach((p, i) => {
+                const x = marginX + dayColWidth + i * periodColWidth;
+                pdf.setDrawColor(0, 0, 0);
+                pdf.setLineWidth(0.35);
+                pdf.rect(x, tableStartY, periodColWidth, headerHeight);
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(11);
+                pdf.setTextColor(0, 0, 0);
+                pdf.text(String(p.label || p.index), x + periodColWidth / 2, tableStartY + 5.2, { align: 'center' });
+                pdf.setFont('helvetica', 'normal');
+                pdf.setFontSize(7.5);
+                pdf.setTextColor(50, 50, 50);
+                pdf.text(p.time, x + periodColWidth / 2, tableStartY + 10.2, { align: 'center' });
+              });
+
+              const matrix = new Map();
+              const spanned = new Set();
+              for (const s of sheet.sessions) {
+                matrix.set(s.day + ':' + s.period_index, s);
+                if (s.span > 1) {
+                  for (let p = 1; p < s.span; p++) {
+                    spanned.add(s.day + ':' + (s.period_index + p));
+                  }
+                }
+              }
+
+              days.forEach((day, dIdx) => {
+                const y = tableStartY + headerHeight + dIdx * dayRowHeight;
+                pdf.setDrawColor(0, 0, 0);
+                pdf.setLineWidth(0.35);
+                pdf.rect(marginX, y, dayColWidth, dayRowHeight);
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(14);
+                pdf.setTextColor(0, 0, 0);
+                pdf.text(DAY_ABBR[day] || day.slice(0, 3), marginX + dayColWidth / 2, y + dayRowHeight / 2 + 2, { align: 'center' });
+
+                periods.forEach((p, pIdx) => {
+                  const cellKey = day + ':' + p.index;
+                  if (spanned.has(cellKey)) return;
+                  const session = matrix.get(cellKey);
+                  const span = session && session.span ? session.span : 1;
+                  const x = marginX + dayColWidth + pIdx * periodColWidth;
+                  const cellW = periodColWidth * span;
+
+                  pdf.setDrawColor(0, 0, 0);
+                  pdf.setLineWidth(0.35);
+                  pdf.rect(x, y, cellW, dayRowHeight);
+
+                  if (session) {
+                    pdf.setTextColor(0, 0, 0);
+                    if (sheet.type === 'SECTION') {
+                      pdf.setFont('helvetica', 'bold');
+                      pdf.setFontSize(8.5);
+                      pdf.text(session.room_code || '', x + 2.5, y + 5.5);
+
+                      pdf.setFont('helvetica', 'bold');
+                      pdf.setFontSize(11.5);
+                      pdf.text((session.course_code || '').toUpperCase(), x + cellW / 2, y + dayRowHeight / 2 + 1, { align: 'center' });
+
+                      pdf.setFont('helvetica', 'bold');
+                      pdf.setFontSize(8);
+                      let fac = session.faculty_name || '';
+                      if (pdf.getTextWidth(fac) > cellW - 5) {
+                        pdf.setFontSize(7);
+                        if (pdf.getTextWidth(fac) > cellW - 5) fac = session.faculty_code || fac;
+                      }
+                      pdf.text(fac, x + cellW - 2.5, y + dayRowHeight - 3.5, { align: 'right' });
+                    } else if (sheet.type === 'FACULTY') {
+                      pdf.setFont('helvetica', 'bold');
+                      pdf.setFontSize(8.5);
+                      pdf.text(session.course_code || '', x + 2.5, y + 5.5);
+
+                      pdf.setFont('helvetica', 'bold');
+                      pdf.setFontSize(8);
+                      pdf.text(session.room_code || '', x + cellW - 2.5, y + 5.5, { align: 'right' });
+
+                      pdf.setFont('helvetica', 'bold');
+                      pdf.setFontSize(11.5);
+                      pdf.text(session.section_name || '', x + cellW / 2, y + dayRowHeight / 2 + 1, { align: 'center' });
+
+                      if (session.room_name && session.room_name !== session.room_code) {
+                        pdf.setFont('helvetica', 'normal');
+                        pdf.setFontSize(7);
+                        pdf.setTextColor(70, 70, 70);
+                        pdf.text(session.room_name, x + cellW - 2.5, y + dayRowHeight - 3.5, { align: 'right' });
+                      }
+                    } else {
+                      pdf.setFont('helvetica', 'bold');
+                      pdf.setFontSize(8.5);
+                      pdf.text(session.course_code || '', x + 2.5, y + 5.5);
+
+                      pdf.setFont('helvetica', 'bold');
+                      pdf.setFontSize(8);
+                      pdf.text(session.faculty_name || '', x + cellW - 2.5, y + 5.5, { align: 'right' });
+
+                      pdf.setFont('helvetica', 'bold');
+                      pdf.setFontSize(11.5);
+                      pdf.text(session.section_name || '', x + cellW / 2, y + dayRowHeight / 2 + 1, { align: 'center' });
+
+                      if (session.course_name) {
+                        pdf.setFont('helvetica', 'normal');
+                        pdf.setFontSize(7);
+                        pdf.setTextColor(70, 70, 70);
+                        pdf.text(session.course_name, x + cellW - 2.5, y + dayRowHeight - 3.5, { align: 'right' });
+                      }
+                    }
+                  }
+                });
+              });
+
+              pdf.setFont('helvetica', 'normal');
+              pdf.setFontSize(8.5);
+              pdf.setTextColor(40, 40, 40);
+              pdf.text('Timetable generated: ' + options.footerDate, marginX, 201);
+              pdf.text(options.footerTag, marginX + tableWidth, 201, { align: 'right' });
+            }
+
+            async function triggerDirectDownload() {
+              const btn = document.getElementById('dl-pdf-btn');
+              if (btn) {
+                btn.innerText = 'Generating Vector PDF...';
+                btn.disabled = true;
+              }
+              try {
+                if (window.opener && window.opener.__downloadTimetablePdfDirect) {
+                  await window.opener.__downloadTimetablePdfDirect();
+                  if (btn) btn.innerText = '✅ PDF Downloaded!';
+                  setTimeout(() => { if (btn) { btn.innerText = '⬇️ Download PDF Directly'; btn.disabled = false; } }, 3000);
+                  return;
+                }
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
+                for (let i = 0; i < exportData.sheets.length; i++) {
+                  if (btn) btn.innerText = 'Drawing sheet ' + (i + 1) + ' of ' + exportData.sheets.length + '...';
+                  if (i > 0) pdf.addPage('a4', 'landscape');
+                  renderSheetVector(pdf, exportData.sheets[i], exportData);
+                }
+                const filename = 'NITP_Official_' + exportData.exportType + '_' + exportData.targetName + '.pdf';
+                pdf.save(filename);
+                if (btn) btn.innerText = '✅ PDF Downloaded!';
+                setTimeout(() => { if (btn) { btn.innerText = '⬇️ Download PDF Directly'; btn.disabled = false; } }, 3000);
+              } catch (e) {
+                alert('Export failed: ' + e.message);
+                if (btn) {
+                  btn.innerText = '⬇️ Download PDF Directly';
+                  btn.disabled = false;
+                }
+              }
+            }
+          </script>
         </body>
       </html>
     `);
@@ -967,6 +1640,12 @@ export default function SchedulePage() {
           ) : (
             <span className="font-medium bg-zinc-200 text-zinc-700 px-2 py-0.5 rounded-md text-[11px]">
               Continuous Slots (No Lunch Break)
+            </span>
+          )}
+          {allSessions.length > 0 && (
+            <span className="font-medium bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded-md border border-emerald-200 text-[11px] flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+              {allSessions.length} Sessions Active • 100% Clash-Free
             </span>
           )}
         </div>
@@ -1112,45 +1791,110 @@ export default function SchedulePage() {
         </CardContent>
       </Card>
 
+      {/* Target Summary Banner & Course Color Legend */}
+      <div className="no-print bg-white rounded-2xl border border-zinc-200/90 shadow-xs p-4 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h2 className="text-base font-bold text-zinc-900 tracking-tight">
+              {targetMetrics.title}
+            </h2>
+            <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-800 border border-slate-200 text-xs font-semibold">
+              {targetMetrics.badgeLabel}
+            </span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-medium">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              100% Student Compliant (≤4h/session • ≤7h/day)
+            </span>
+          </div>
+          <p className="text-xs text-zinc-500">
+            {targetMetrics.subtitle} • {targetMetrics.totalSessions} sessions ({targetMetrics.totalPeriods} periods: {targetMetrics.theoryPeriods}h theory + {targetMetrics.labPeriods}h lab)
+          </p>
+        </div>
+
+        {/* Course Color Pills Legend */}
+        {targetMetrics.uniqueCourses.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mr-1">
+              Courses:
+            </span>
+            {targetMetrics.uniqueCourses.map((c) => {
+              const theme = getCourseTheme(c.code, c.isLab);
+              return (
+                <div
+                  key={c.code}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-transform hover:scale-105 ${theme.bg} ${theme.text} ${theme.border}`}
+                  title={`${c.code}: ${c.name} • Faculty: ${c.faculty}`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${theme.dotColor}`} />
+                  <span className="font-mono">{c.code}</span>
+                  {c.isLab && (
+                    <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-teal-200/70 text-teal-900 font-bold">
+                      Lab
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Visual Timetable Grid (Screen Interactive Layout) */}
-      <Card className="no-print overflow-hidden shadow-xs">
+      <Card className="no-print overflow-hidden shadow-xs border border-zinc-200/80 rounded-2xl bg-white">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left min-w-[950px]">
+            <table className="w-full table-fixed border-collapse text-left min-w-[960px] xl:min-w-0">
+              <colgroup>
+                <col className="w-20" />
+                {morningPeriods.map((p) => (
+                  <col key={`col-m-${p.index}`} />
+                ))}
+                {timingConfig.hasLunchBreak && <col className="w-14" />}
+                {afternoonPeriods.map((p) => (
+                  <col key={`col-a-${p.index}`} />
+                ))}
+              </colgroup>
               <thead>
-                <tr className="bg-zinc-900 text-white text-xs font-semibold">
-                  <th className="py-3 px-3 w-28 border-r border-zinc-800 uppercase tracking-wider text-center">
-                    Day / Time
+                <tr className="bg-slate-900 text-white text-xs font-semibold">
+                  <th className="py-3 px-2 border-r border-slate-800 text-center uppercase tracking-wider text-[11px] font-bold text-slate-300">
+                    Day
                   </th>
                   {morningPeriods.map((p) => (
-                    <th key={p.index} className="py-2.5 px-2 border-r border-zinc-800 text-center">
-                      <div>Period {p.index}</div>
-                      <div className="text-[10px] font-normal text-zinc-400 font-mono">{p.time}</div>
+                    <th key={p.index} className="py-3 px-2 border-r border-slate-800 text-center align-middle">
+                      <div className="text-xs font-bold text-slate-200 font-mono tracking-tight">
+                        {p.time}
+                      </div>
                     </th>
                   ))}
 
-                  {/* Lunch Break Header Column if enabled */}
+                  {/* Lunch Break Header Column */}
                   {timingConfig.hasLunchBreak && (
-                    <th className="py-2.5 px-2 w-16 bg-red-950/70 text-red-300 border-r border-zinc-800 text-center">
-                      <div>LUNCH</div>
-                      <div className="text-[9px] font-mono text-red-300">{timingConfig.lunchTime}</div>
+                    <th className="py-3 px-1 bg-amber-950/80 text-amber-300 border-r border-slate-800 text-center align-middle">
+                      <div className="flex items-center justify-center gap-1 text-[11px] font-bold tracking-wider text-amber-400">
+                        <Utensils className="w-3 h-3 text-amber-400" />
+                        <span>RECESS</span>
+                      </div>
+                      <div className="text-[10px] font-mono text-amber-300/90 font-semibold mt-0.5">{timingConfig.lunchTime}</div>
                     </th>
                   )}
 
                   {afternoonPeriods.map((p) => (
-                    <th key={p.index} className="py-2.5 px-2 border-r border-zinc-800 text-center">
-                      <div>Period {p.index}</div>
-                      <div className="text-[10px] font-normal text-zinc-400 font-mono">{p.time}</div>
+                    <th key={p.index} className="py-3 px-2 border-r border-slate-800 text-center align-middle">
+                      <div className="text-xs font-bold text-slate-200 font-mono tracking-tight">
+                        {p.time}
+                      </div>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-200 text-xs">
                 {displayDays.map((day) => (
-                  <tr key={day} className="hover:bg-zinc-50/50 transition-colors">
+                  <tr key={day} className="hover:bg-zinc-50/40 transition-colors">
                     {/* Day Column */}
-                    <td className="py-4 px-3 font-bold text-zinc-900 bg-zinc-100/70 border-r border-zinc-200 text-center font-mono">
-                      {day}
+                    <td className="py-3 px-2 font-bold text-slate-800 bg-slate-50/70 border-r border-zinc-200 text-center align-middle">
+                      <span className="inline-block px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-800 shadow-2xs font-mono">
+                        {day.slice(0, 3)}
+                      </span>
                     </td>
 
                     {/* Morning Periods */}
@@ -1169,7 +1913,7 @@ export default function SchedulePage() {
                         <td
                           key={period.index}
                           colSpan={session?.span || 1}
-                          className={`p-1.5 border-r border-zinc-200 align-top h-24 transition-opacity ${
+                          className={`p-1 sm:p-1.5 border-r border-zinc-200 align-top transition-opacity ${
                             isDimmed ? 'opacity-35 hover:opacity-100' : ''
                           }`}
                         >
@@ -1187,13 +1931,10 @@ export default function SchedulePage() {
                               type="button"
                               onClick={() => handleOpenCreateModal(day, period.index)}
                               title={`Click to manually assign class on ${day} at ${period.time}`}
-                              className="group w-full h-full rounded-xl border border-dashed border-zinc-200 hover:border-red-400 hover:bg-red-50/40 flex flex-col items-center justify-center text-zinc-400 hover:text-red-700 transition-all p-2 text-center"
+                              className="group w-full min-h-[108px] rounded-xl border border-dashed border-zinc-200/80 hover:border-red-400 hover:bg-red-50/30 flex flex-col items-center justify-center text-zinc-300 hover:text-red-700 transition-all p-2 text-center"
                             >
-                              <span className="text-[10px] font-medium text-zinc-400 group-hover:text-red-700 flex items-center gap-1">
-                                <Plus className="w-3 h-3 group-hover:scale-125 transition-transform" />
-                                Assign
-                              </span>
-                              <span className="text-[9px] text-zinc-300 group-hover:text-red-500 font-mono">
+                              <Plus className="w-3.5 h-3.5 text-zinc-300 group-hover:text-red-600 group-hover:scale-125 transition-transform mb-1" />
+                              <span className="text-[10px] font-semibold text-zinc-400 group-hover:text-red-700 transition-colors">
                                 Free Slot
                               </span>
                             </button>
@@ -1204,10 +1945,16 @@ export default function SchedulePage() {
 
                     {/* Lunch Break Column */}
                     {timingConfig.hasLunchBreak && (
-                      <td className="p-1 border-r border-zinc-200 bg-red-50/30 text-center align-middle">
-                        <span className="[writing-mode:vertical-lr] rotate-180 text-[10px] font-bold text-red-800 tracking-wider">
-                          RECESS
-                        </span>
+                      <td className="p-1 border-r border-amber-200/80 bg-amber-50/60 text-center align-middle select-none">
+                        <div className="flex flex-col items-center justify-center gap-1 py-3 text-amber-800">
+                          <Utensils className="w-3.5 h-3.5 opacity-70" />
+                          <span className="[writing-mode:vertical-lr] rotate-180 text-[10px] font-bold tracking-widest uppercase">
+                            LUNCH
+                          </span>
+                          <span className="[writing-mode:vertical-lr] rotate-180 text-[8px] font-mono text-amber-700/70">
+                            RECESS
+                          </span>
+                        </div>
                       </td>
                     )}
 
@@ -1227,7 +1974,7 @@ export default function SchedulePage() {
                         <td
                           key={period.index}
                           colSpan={session?.span || 1}
-                          className={`p-1.5 border-r border-zinc-200 align-top h-24 transition-opacity ${
+                          className={`p-1 sm:p-1.5 border-r border-zinc-200 align-top transition-opacity ${
                             isDimmed ? 'opacity-35 hover:opacity-100' : ''
                           }`}
                         >
@@ -1245,13 +1992,10 @@ export default function SchedulePage() {
                               type="button"
                               onClick={() => handleOpenCreateModal(day, period.index)}
                               title={`Click to manually assign class on ${day} at ${period.time}`}
-                              className="group w-full h-full rounded-xl border border-dashed border-zinc-200 hover:border-red-400 hover:bg-red-50/40 flex flex-col items-center justify-center text-zinc-400 hover:text-red-700 transition-all p-2 text-center"
+                              className="group w-full min-h-[108px] rounded-xl border border-dashed border-zinc-200/80 hover:border-red-400 hover:bg-red-50/30 flex flex-col items-center justify-center text-zinc-300 hover:text-red-700 transition-all p-2 text-center"
                             >
-                              <span className="text-[10px] font-medium text-zinc-400 group-hover:text-red-700 flex items-center gap-1">
-                                <Plus className="w-3 h-3 group-hover:scale-125 transition-transform" />
-                                Assign
-                              </span>
-                              <span className="text-[9px] text-zinc-300 group-hover:text-red-500 font-mono">
+                              <Plus className="w-3.5 h-3.5 text-zinc-300 group-hover:text-red-600 group-hover:scale-125 transition-transform mb-1" />
+                              <span className="text-[10px] font-semibold text-zinc-400 group-hover:text-red-700 transition-colors">
                                 Free Slot
                               </span>
                             </button>
@@ -1271,7 +2015,19 @@ export default function SchedulePage() {
       {/* PRINT-ONLY OFFICIAL CONTAINER: Multi-Page Landscape PDF Booklet */}
       {/* Strictly isolated in globals.css so only this renders when printed */}
       {/* ========================================================================= */}
-      <div id="asc-official-print-container" className="hidden">
+      <div
+        id="asc-official-print-container"
+        className="no-print"
+        style={{
+          position: 'fixed',
+          left: '-99999px',
+          top: '0',
+          width: '1120px',
+          background: '#ffffff',
+          zIndex: -9999,
+          pointerEvents: 'none',
+        }}
+      >
         <div id="asc-export-sheets-wrapper">
           {exportSheets.map((sheet, idx) => (
             <AscTimetableSheet
@@ -1313,9 +2069,9 @@ export default function SchedulePage() {
                     preset: 'NITP_OFFICIAL',
                     periods: NITP_OFFICIAL_PERIODS,
                     hasLunchBreak: true,
-                    lunchAfterPeriod: 5,
-                    lunchTime: '12:30 - 13:25',
-                    lunchLabel: 'LUNCH BREAK',
+                    lunchAfterPeriod: 4,
+                    lunchTime: '12:25 - 13:30',
+                    lunchLabel: 'LUNCH RECESS',
                   });
                 }}
                 className={`p-3 rounded-xl border text-left transition-all ${
@@ -1325,13 +2081,13 @@ export default function SchedulePage() {
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs">NIT Patna Official (9 Periods)</span>
+                  <span className="font-bold text-xs">NIT Patna Official (8 Periods)</span>
                   {tempTimingConfig.preset === 'NITP_OFFICIAL' && (
                     <Check className="w-3.5 h-3.5 text-red-700" />
                   )}
                 </div>
                 <p className="text-[11px] text-zinc-500 mt-0.5">
-                  8:30 - 17:25 (55 min slots) · Lunch after Period 5
+                  8:30 - 17:25 (55 min slots) · Lunch recess after Period 4 (12:25 - 13:30)
                 </p>
               </button>
 
@@ -1697,7 +2453,7 @@ export default function SchedulePage() {
           {/* Action Row */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-zinc-100">
             <span className="text-[11px] text-zinc-500 text-center sm:text-left">
-              💡 In the print preview, select <strong>Save as PDF</strong> with <strong>Landscape</strong> orientation.
+              Directly generates and downloads high-resolution landscape A4 PDF ({exportSheets.length} {exportSheets.length === 1 ? 'Sheet' : 'Sheets'}). Zero browser print needed.
             </span>
 
             <div className="flex items-center gap-2">
@@ -1706,19 +2462,25 @@ export default function SchedulePage() {
                 variant="outline"
                 size="sm"
                 onClick={handleOpenInNewWindow}
-                title="Open clean printable booklet in a standalone browser tab"
+                title="Open clean preview booklet in a standalone browser tab"
               >
                 <ExternalLink className="w-3.5 h-3.5 mr-1" />
-                Open Standalone Tab
+                Standalone Tab
               </Button>
               <Button
                 type="button"
                 variant="primary"
                 size="sm"
-                onClick={handlePrintIsolated}
+                isLoading={isExportingPdf}
+                disabled={isExportingPdf}
+                onClick={handleDirectPdfDownload}
+                title="Directly download official PDF without browser print dialog"
+                className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold"
               >
-                <Printer className="w-4 h-4 mr-1.5" />
-                Print / Save PDF ({exportSheets.length} {exportSheets.length === 1 ? 'Page' : 'Pages'})
+                <Download className="w-4 h-4 mr-1.5" />
+                {isExportingPdf
+                  ? exportPdfProgress || 'Generating PDF...'
+                  : `Download PDF Directly (${exportSheets.length} ${exportSheets.length === 1 ? 'Page' : 'Pages'})`}
               </Button>
             </div>
           </div>
@@ -1923,7 +2685,19 @@ export default function SchedulePage() {
               <li>Zero faculty teaching overlap across rooms</li>
               <li>Zero student cohort double-booking across courses</li>
               <li>
-                Multi-period lab sessions never cross the lunch break (After Period {timingConfig.lunchAfterPeriod})
+                <strong>Zero adjacent classes in diff sections for faculty</strong> (mandatory buffer or lunch)
+              </li>
+              <li>
+                <strong>Dedicated home classroom affinity</strong>: same classroom preserved for each student cohort
+              </li>
+              <li>
+                <strong>Student Session Protection</strong>: max 4 continuous class/lab hours in 1 session (before or after lunch)
+              </li>
+              <li>
+                <strong>Student Daily Caps</strong>: max 5 hours of theory teaching & max 7 hours total classes/labs per day
+              </li>
+              <li>
+                <strong>Strict Lunch Recess</strong>: Zero classes scheduled during lunch break (After Period {timingConfig.lunchAfterPeriod})
               </li>
               <li>Faculty daily and weekly period caps strictly respected</li>
             </ul>
@@ -2028,7 +2802,11 @@ function AscTimetableSheet({
       className={`asc-timetable-sheet bg-white text-black font-sans ${
         isPreview ? 'p-2' : 'p-4'
       }`}
-      style={{ boxSizing: 'border-box' }}
+      style={{
+        boxSizing: 'border-box',
+        width: isPreview ? '100%' : '1100px',
+        backgroundColor: '#ffffff',
+      }}
     >
       {/* 1. Large Bold Centered Title (e.g. APME-1, Teacher A Deepak, IC Grnd Flr) */}
       <div className="text-center mb-1">
@@ -2204,27 +2982,35 @@ function SessionGridCard({
 }) {
   const isLab = session.span > 1;
   const isPinned = Boolean(session.is_pinned);
+  const theme = getCourseTheme(session.course_code, isLab);
 
   return (
     <div
       onClick={onEdit}
-      className={`group h-full rounded-xl p-2.5 flex flex-col justify-between transition-all duration-150 border cursor-pointer hover:shadow-md ${
+      className={`group relative w-full min-h-[108px] rounded-xl p-2.5 flex flex-col justify-between transition-all duration-150 border cursor-pointer hover:shadow-md hover:-translate-y-0.5 ${
         isMatched
-          ? 'ring-2 ring-red-700 bg-red-100/90 border-red-300 shadow-sm scale-[1.01]'
-          : isLab
-          ? 'bg-stone-50/95 border-stone-300 text-stone-900 hover:border-stone-400 shadow-2xs'
-          : 'bg-red-50/90 border-red-200 text-red-950 hover:border-red-300 shadow-2xs'
+          ? 'ring-2 ring-red-700 bg-red-100/95 border-red-400 shadow-md scale-[1.01]'
+          : `${theme.bg} ${theme.border} shadow-2xs`
       }`}
     >
+      {/* Top Accent Strip */}
+      <div className={`absolute top-0 left-3 right-3 h-0.5 rounded-full ${theme.indicator} opacity-75`} />
+
       <div>
-        <div className="flex items-start justify-between gap-1">
-          <div className="flex items-center gap-1 flex-wrap">
-            <span className="font-bold font-mono text-[11px] text-red-800">
+        <div className="flex items-start justify-between gap-1 pt-0.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className={`font-mono font-bold text-xs tracking-tight ${theme.codeColor}`}>
               {session.course_code}
             </span>
             {isLab && (
-              <span className="px-1.5 py-0.2 rounded bg-stone-200 text-[9px] font-bold text-stone-800 border border-stone-300">
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-teal-200/80 border border-teal-300 text-[9px] font-bold text-teal-950 uppercase tracking-tight">
+                <FlaskConical className="w-2.5 h-2.5 text-teal-800" />
                 {session.span}h Lab
+              </span>
+            )}
+            {isPinned && (
+              <span className="p-0.5 text-amber-600" title="Pinned session (locked)">
+                <Pin className="w-2.5 h-2.5 fill-current" />
               </span>
             )}
             {isMatched && (
@@ -2235,13 +3021,13 @@ function SessionGridCard({
           </div>
 
           <div
-            className="no-print flex items-center gap-0.5 opacity-80 group-hover:opacity-100 transition-opacity"
+            className="no-print flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-xs rounded-md shadow-xs px-0.5 border border-zinc-200/60"
             onClick={(e) => e.stopPropagation()}
           >
             <button
               onClick={onEdit}
               title="Edit class assignment"
-              className="p-1 rounded text-zinc-400 hover:text-zinc-700 hover:bg-black/5 transition-colors"
+              className="p-1 rounded text-zinc-500 hover:text-zinc-900 hover:bg-black/5 transition-colors"
             >
               <Pencil className="w-3 h-3" />
             </button>
@@ -2249,7 +3035,7 @@ function SessionGridCard({
               onClick={onTogglePin}
               title={isPinned ? 'Unpin' : 'Pin to lock slot'}
               className={`p-1 rounded hover:bg-black/10 transition-colors ${
-                isPinned ? 'text-red-700' : 'text-zinc-400 hover:text-zinc-700'
+                isPinned ? 'text-amber-600' : 'text-zinc-500 hover:text-zinc-900'
               }`}
             >
               <Pin className={`w-3 h-3 ${isPinned ? 'fill-current' : ''}`} />
@@ -2257,37 +3043,40 @@ function SessionGridCard({
             <button
               onClick={onDelete}
               title="Delete session"
-              className="p-1 rounded text-zinc-400 hover:text-rose-600 hover:bg-black/5 transition-colors"
+              className="p-1 rounded text-zinc-500 hover:text-rose-600 hover:bg-black/5 transition-colors"
             >
               <Trash2 className="w-3 h-3" />
             </button>
           </div>
         </div>
 
-        <p className="font-semibold text-[11px] truncate mt-0.5 text-zinc-800" title={session.course_name}>
+        <p
+          className={`font-semibold text-xs leading-snug line-clamp-2 mt-1 ${theme.text}`}
+          title={session.course_name}
+        >
           {session.course_name}
         </p>
       </div>
 
-      <div className="mt-2 pt-1 border-t border-black/5 space-y-0.5 text-[10px] text-zinc-600">
+      <div className="mt-1.5 pt-1.5 border-t border-black/10 space-y-0.5 text-[10px]">
         {filterMode !== 'CLASSROOM' && (
-          <div className="flex items-center gap-1 font-mono">
+          <div className="flex items-center gap-1 font-mono text-zinc-700 leading-tight">
             <DoorOpen className="w-3 h-3 text-zinc-400 shrink-0" />
-            <span className="font-bold text-zinc-800">{session.room_code}</span>
+            <span className="font-bold text-zinc-900 truncate">{session.room_code}</span>
           </div>
         )}
 
         {filterMode !== 'FACULTY' && (
-          <div className="flex items-center gap-1 truncate">
+          <div className="flex items-center gap-1 truncate text-zinc-600 leading-tight">
             <User className="w-3 h-3 text-zinc-400 shrink-0" />
-            <span className="truncate">{session.faculty_name}</span>
+            <span className="truncate font-medium">{session.faculty_name}</span>
           </div>
         )}
 
         {filterMode !== 'SECTION' && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 text-zinc-600 leading-tight">
             <Users className="w-3 h-3 text-zinc-400 shrink-0" />
-            <span className="font-medium text-zinc-700">{session.section_name}</span>
+            <span className="font-semibold text-zinc-800 truncate">{session.section_name}</span>
           </div>
         )}
       </div>

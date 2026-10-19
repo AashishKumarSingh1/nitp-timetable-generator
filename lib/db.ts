@@ -16,6 +16,17 @@ declare global {
   var __pgPoolInstance: any;
 }
 
+export function resetDatabase() {
+  if (global.__sqliteDbInstance) {
+    try {
+      global.__sqliteDbInstance.close();
+    } catch {
+      // ignore close errors
+    }
+    global.__sqliteDbInstance = null;
+  }
+}
+
 function getDatabase() {
   if (isPostgres) {
     if (!global.__pgPoolInstance) {
@@ -41,8 +52,10 @@ function getDatabase() {
     const dbPath = path.join(dataDir, 'scheduler.db');
     const db = new DatabaseSync(dbPath);
     
-    // Enable WAL mode & foreign keys for safety and performance
+    // Enable WAL mode, busy timeout & normal sync for multi-process safety
     db.exec('PRAGMA journal_mode = WAL;');
+    db.exec('PRAGMA busy_timeout = 10000;');
+    db.exec('PRAGMA synchronous = NORMAL;');
     db.exec('PRAGMA foreign_keys = ON;');
 
     // Run schema migrations if tables don't exist
@@ -71,7 +84,7 @@ export function normalizeSql(sql: string, targetType: 'sqlite' | 'pg'): string {
 
 export async function query<T = any>(sqlText: string, params: any[] = []): Promise<T[]> {
   const start = performance.now();
-  const db = getDatabase();
+  let db = getDatabase();
 
   if (db.type === 'pg') {
     const normSql = normalizeSql(sqlText, 'pg');
@@ -82,14 +95,25 @@ export async function query<T = any>(sqlText: string, params: any[] = []): Promi
     return res.rows;
   }
 
-  // SQLite execution
+  // SQLite execution with auto-recovery on connection desynchronization
   const normSql = normalizeSql(sqlText, 'sqlite');
-  const stmt = db.client.prepare(normSql);
-  const rows = stmt.all(...params) as T[];
-  if (process.env.NODE_ENV === 'development') {
-    console.log('[SQLite]', { text: normSql, duration: performance.now() - start, rows: rows.length });
+  try {
+    const stmt = db.client.prepare(normSql);
+    const rows = stmt.all(...params) as T[];
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[SQLite]', { text: normSql, duration: performance.now() - start, rows: rows.length });
+    }
+    return rows;
+  } catch (err: any) {
+    if (err.message?.includes('malformed') || err.message?.includes('busy') || err.message?.includes('locked')) {
+      console.warn('[SQLite] Auto-recovering desynchronized database connection...', err.message);
+      resetDatabase();
+      db = getDatabase();
+      const stmt = db.client.prepare(normSql);
+      return stmt.all(...params) as T[];
+    }
+    throw err;
   }
-  return rows;
 }
 
 export async function queryOne<T = any>(sqlText: string, params: any[] = []): Promise<T | null> {
@@ -99,7 +123,7 @@ export async function queryOne<T = any>(sqlText: string, params: any[] = []): Pr
 
 export async function execute(sqlText: string, params: any[] = []): Promise<{ changes: number; lastInsertRowid?: number | bigint }> {
   const start = performance.now();
-  const db = getDatabase();
+  let db = getDatabase();
 
   if (db.type === 'pg') {
     const normSql = normalizeSql(sqlText, 'pg');
@@ -108,15 +132,30 @@ export async function execute(sqlText: string, params: any[] = []): Promise<{ ch
   }
 
   const normSql = normalizeSql(sqlText, 'sqlite');
-  const stmt = db.client.prepare(normSql);
-  const result = stmt.run(...params);
-  if (process.env.NODE_ENV === 'development') {
-    console.log('[SQLite Exec]', { text: normSql, duration: performance.now() - start, changes: result.changes });
+  try {
+    const stmt = db.client.prepare(normSql);
+    const result = stmt.run(...params);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[SQLite Exec]', { text: normSql, duration: performance.now() - start, changes: result.changes });
+    }
+    return {
+      changes: Number(result.changes),
+      lastInsertRowid: result.lastInsertRowid,
+    };
+  } catch (err: any) {
+    if (err.message?.includes('malformed') || err.message?.includes('busy') || err.message?.includes('locked')) {
+      console.warn('[SQLite Exec] Auto-recovering desynchronized database connection...', err.message);
+      resetDatabase();
+      db = getDatabase();
+      const stmt = db.client.prepare(normSql);
+      const result = stmt.run(...params);
+      return {
+        changes: Number(result.changes),
+        lastInsertRowid: result.lastInsertRowid,
+      };
+    }
+    throw err;
   }
-  return {
-    changes: Number(result.changes),
-    lastInsertRowid: result.lastInsertRowid,
-  };
 }
 
 export async function transaction<T>(callback: (client: {
@@ -124,7 +163,7 @@ export async function transaction<T>(callback: (client: {
   queryOne: <R = any>(text: string, params?: any[]) => Promise<R | null>;
   execute: (text: string, params?: any[]) => Promise<{ changes: number; lastInsertRowid?: number | bigint }>;
 }) => Promise<T>): Promise<T> {
-  const db = getDatabase();
+  let db = getDatabase();
 
   if (db.type === 'pg') {
     const client = await db.client.connect();
@@ -155,9 +194,9 @@ export async function transaction<T>(callback: (client: {
     }
   }
 
-  // SQLite transaction
-  db.client.exec('BEGIN');
+  // SQLite transaction with immediate lock & recovery
   try {
+    db.client.exec('BEGIN IMMEDIATE');
     const txClient = {
       query: async <R = any>(text: string, params: any[] = []) => {
         const stmt = db.client.prepare(normalizeSql(text, 'sqlite'));
@@ -177,8 +216,16 @@ export async function transaction<T>(callback: (client: {
     const result = await callback(txClient);
     db.client.exec('COMMIT');
     return result;
-  } catch (e) {
-    db.client.exec('ROLLBACK');
+  } catch (e: any) {
+    try {
+      db.client.exec('ROLLBACK');
+    } catch {
+      // ignore rollback failure
+    }
+    if (e.message?.includes('malformed') || e.message?.includes('busy') || e.message?.includes('locked')) {
+      console.warn('[SQLite Transaction] Auto-recovering desynchronized database connection...', e.message);
+      resetDatabase();
+    }
     throw e;
   }
 }
