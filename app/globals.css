@@ -1,26 +1,137 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:where([data-theme="dark"]));
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root, html, body {
+  color-scheme: light !important;
+  --primary: #991b1b;       /* Prestigious Crimson / Cardinal Red */
+  --primary-hover: #b91c1c;
+  --accent: #881337;        /* Deep Rose / Wine */
+  --accent-hover: #9f1239;
+  --surface: #ffffff;
+  --background: #fafafa;
+  --card: #ffffff;
+  --border: #e4e4e7;
+  --foreground: #09090b;
+  --muted: #71717a;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: #fafafa !important;
+  color: #09090b !important;
+  min-height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  letter-spacing: -0.011em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 9999px;
+}
+
+/* Institutional Card Styling */
+.executive-card {
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+}
+
+/* Premium Red Gradient Badges and Headers */
+.crimson-gradient {
+  background: linear-gradient(135deg, #7f1d1d 0%, #991b1b 50%, #450a0a 100%);
+}
+
+.crimson-subtle-gradient {
+  background: linear-gradient(135deg, #fef2f2 0%, #ffffff 100%);
+}
+
+/* Print Layout Specifications - NIT Patna / aSc Timetables Official Format */
+@media print {
+  @page {
+    size: landscape;
+    margin: 6mm 8mm;
+  }
+  
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    font-size: 11pt;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Strict print isolation: Hide everything in body except the official print container */
+  body * {
+    visibility: hidden !important;
+  }
+
+  #asc-official-print-container,
+  #asc-official-print-container * {
+    visibility: visible !important;
+  }
+
+  #asc-official-print-container {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  /* Hide app navigation, headers, and UI controls */
+  .no-print, nav, aside, header, footer:not(.asc-footer), [role="dialog"], .fixed {
+    display: none !important;
+  }
+
+  /* Multi-page booklet: Each section/faculty/room sheet is an independent landscape page */
+  .asc-timetable-sheet {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    page-break-before: auto;
+    page-break-after: always;
+    break-after: page;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    width: 100% !important;
+    min-height: 94vh;
+    padding: 4mm 0;
+    box-sizing: border-box;
+    background: #ffffff !important;
+  }
+
+  .asc-timetable-sheet:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  /* Crisp high-contrast black grid matching official institute scanned sheets */
+  .asc-table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    border: 2px solid #000000 !important;
+    table-layout: fixed !important;
+  }
+
+  .asc-table th, .asc-table td {
+    border: 1.5px solid #000000 !important;
+    color: #000000 !important;
+  }
+}
+
+
