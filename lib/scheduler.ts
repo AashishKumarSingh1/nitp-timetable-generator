@@ -50,6 +50,10 @@ export interface SolverResult {
   unplacedDemands: { demand: ScheduleDemand; reason: string }[];
   durationMs: number;
   placementRate: number;
+  singleHourDaysCount: number;
+  isolatedGapsCount: number;
+  contiguousBlocksCount: number;
+  reliefDaysCount: number;
 }
 
 export async function runSchedulerSolver(options: {
@@ -137,6 +141,13 @@ export async function runSchedulerSolver(options: {
   // Faculty periods count: `faculty:${facultyId}:${day}` and `faculty:${facultyId}:week`
   const facultyPeriodCounts = new Map<string, number>();
 
+  // Period-level occupied tracking for instant contiguity & gap detection
+  const sectionDayPeriods = new Map<string, Set<number>>(); // `${sectionName}:${day}` -> Set of periods
+  const facultyDayPeriods = new Map<string, Set<number>>(); // `${facultyId}:${day}` -> Set of periods
+
+  // Section lab tracking to avoid double-lab overload and spread multi-hour blocks
+  const sectionLabDayCount = new Map<string, number>(); // `section:${sectionName}:${day}:labs`
+
   // Student section workload tracking:
   // 1. Total class/lab hours per day: `section:${sectionName}:${day}:total_hours` (Max 7 hours)
   // 2. Total theory teaching hours per day: `section:${sectionName}:${day}:teaching_hours` (Max 5 hours)
@@ -148,12 +159,24 @@ export async function runSchedulerSolver(options: {
 
   // Register pinned sessions
   for (const ps of existingPinned) {
+    const secDayKey = `${ps.section_name}:${ps.day}`;
+    if (!sectionDayPeriods.has(secDayKey)) sectionDayPeriods.set(secDayKey, new Set<number>());
+    const facDayKey = `${ps.faculty_id}:${ps.day}`;
+    if (!facultyDayPeriods.has(facDayKey)) facultyDayPeriods.set(facDayKey, new Set<number>());
+
+    if (ps.span > 1) {
+      const secLabKey = `section:${ps.section_name}:${ps.day}:labs`;
+      sectionLabDayCount.set(secLabKey, (sectionLabDayCount.get(secLabKey) || 0) + 1);
+    }
+
     for (let p = 0; p < ps.span; p++) {
       const pIdx = ps.period_index + p;
       occupiedSlots.add(`room:${ps.room_id}:${ps.day}:${pIdx}`);
       occupiedSlots.add(`faculty:${ps.faculty_id}:${ps.day}:${pIdx}`);
       occupiedSlots.add(`section:${ps.section_name}:${ps.day}:${pIdx}`);
       facultySectionSlotMap.set(`faculty:${ps.faculty_id}:${ps.day}:${pIdx}`, ps.section_name);
+      sectionDayPeriods.get(secDayKey)!.add(pIdx);
+      facultyDayPeriods.get(facDayKey)!.add(pIdx);
 
       // Count faculty periods
       const dayKey = `faculty:${ps.faculty_id}:${ps.day}`;
@@ -375,8 +398,8 @@ export async function runSchedulerSolver(options: {
     }
   }
 
-  // Heuristic sort: place multi-span labs first (most constrained), then by periodsPerWeek
-  demands.sort((a, b) => b.span - a.span || b.periodsPerWeek - a.periodsPerWeek);
+  // Heuristic sort: multi-span labs first (most constrained), then group by sectionName so curriculum demands form continuous blocks
+  demands.sort((a, b) => (b.span - a.span) || a.sectionName.localeCompare(b.sectionName) || (b.periodsPerWeek - a.periodsPerWeek));
 
   const placedSessions: PlacedSession[] = [];
   const unplacedDemands: { demand: ScheduleDemand; reason: string }[] = [];
@@ -394,7 +417,144 @@ export async function runSchedulerSolver(options: {
     return starts.length > 0 ? starts : [1];
   };
 
-  // Solver Iteration
+  // Helper candidate slot interface
+  interface ScoredCandidateSlot {
+    day: DayOfWeek;
+    startPeriod: number;
+    room: typeof rooms[0];
+    score: number;
+    facDayKey: string;
+    facWeekKey: string;
+    secTotalKey: string;
+    secTeachKey: string;
+    cDayKey: string;
+    currentDaily: number;
+    currentWeekly: number;
+    currentSectionDailyTotal: number;
+    currentSectionTeachingHours: number;
+    isTeaching: boolean;
+    isLab: boolean;
+    secLabKey: string;
+  }
+
+  // Objective scoring function for student relief, continuous blocks, and gap prevention
+  const scoreCandidateSlot = (params: {
+    demand: ScheduleDemand;
+    day: DayOfWeek;
+    startPeriod: number;
+    room: typeof rooms[0];
+    homeRoomId?: string;
+  }): number => {
+    const { demand, day, startPeriod, room, homeRoomId } = params;
+    let score = 0;
+    const endPeriod = startPeriod + demand.span - 1;
+
+    const secDayKey = `${demand.sectionName}:${day}`;
+    const secOccupied = sectionDayPeriods.get(secDayKey) || new Set<number>();
+
+    // Simulate candidate occupied periods for this section on this day
+    const simulatedPeriods = new Set(secOccupied);
+    for (let s = 0; s < demand.span; s++) {
+      simulatedPeriods.add(startPeriod + s);
+    }
+
+    const morning = Array.from(simulatedPeriods)
+      .filter((p) => (lunchAfter > 0 ? p <= lunchAfter : p <= 4))
+      .sort((a, b) => a - b);
+    const afternoon = Array.from(simulatedPeriods)
+      .filter((p) => (lunchAfter > 0 ? p > lunchAfter : p > 4))
+      .sort((a, b) => a - b);
+
+    // 1. Strict Prohibition of ANY Morning Gap (e.g. 8:30 at P1 and 11:30 at P4)
+    if (morning.length > 1) {
+      const morningSpan = morning[morning.length - 1] - morning[0] + 1;
+      const morningGap = morningSpan - morning.length;
+      if (morningGap > 0) {
+        score -= 6000 * morningGap; // Severe penalty for ANY hole between morning classes
+      } else {
+        score += 350; // Bonus for a continuous morning block
+      }
+    }
+
+    // 2. Strict Prohibition of ANY Afternoon Gap (e.g. P5 and P7)
+    if (afternoon.length > 1) {
+      const afternoonSpan = afternoon[afternoon.length - 1] - afternoon[0] + 1;
+      const afternoonGap = afternoonSpan - afternoon.length;
+      if (afternoonGap > 0) {
+        score -= 6000 * afternoonGap; // Severe penalty for ANY hole between afternoon classes
+      } else {
+        score += 350; // Bonus for a continuous afternoon block
+      }
+    }
+
+    // 3. Minimum 2 Hours Continuous Rule (No isolated 1-hour session)
+    // If a session has only 1 class in the morning, or only 1 class in the afternoon:
+    if (morning.length === 1 && demand.span === 1) {
+      score -= 3000; // Strongly discourage leaving an isolated 1-hr class
+    }
+    if (afternoon.length === 1 && demand.span === 1) {
+      score -= 3000;
+    }
+
+    // 4. Contiguity: direct attachment to an existing class
+    const connectsBefore = secOccupied.has(startPeriod - 1);
+    const connectsAfter = secOccupied.has(endPeriod + 1);
+    if (connectsBefore) score += 200;
+    if (connectsAfter) score += 200;
+    if (connectsBefore && connectsAfter) score += 250;
+
+    // 5. Daily Relief & Load Balance:
+    const secTotalKey = `section:${demand.sectionName}:${day}:total_hours`;
+    const curSecDayHrs = sectionDayTotalHours.get(secTotalKey) || 0;
+
+    if (curSecDayHrs === 0) {
+      if (demand.span === 1) {
+        let otherDaysCanGrow = false;
+        for (const d of activeDays) {
+          if (d === day) continue;
+          const dHrs = sectionDayTotalHours.get(`section:${demand.sectionName}:${d}:total_hours`) || 0;
+          if (dHrs >= 1 && dHrs <= 3) {
+            otherDaysCanGrow = true;
+            break;
+          }
+        }
+        if (otherDaysCanGrow) {
+          score -= 350; // Strongly prefer attaching to days that already have classes
+        }
+      } else {
+        score += 120; // Multi-hour lab on a fresh day starts a solid >= 2-hr block!
+      }
+    } else if (curSecDayHrs === 1) {
+      score += 450; // Rescues single-hour day into a solid 2-hour block!
+    } else if (curSecDayHrs === 2) {
+      score += 300; // Perfect 3-hour continuous run
+    } else if (curSecDayHrs === 3) {
+      score += 100;
+    } else if (curSecDayHrs >= 4) {
+      score -= 150;
+    }
+
+    // 6. Home Classroom Affinity
+    if (homeRoomId && room.id === homeRoomId) {
+      score += 60;
+    }
+
+    // 7. Faculty Gap Reduction
+    const facDayKey = `${demand.facultyId}:${day}`;
+    const facOccupied = facultyDayPeriods.get(facDayKey) || new Set<number>();
+    if (startPeriod - 2 >= 1 && facOccupied.has(startPeriod - 2) && !facOccupied.has(startPeriod - 1)) {
+      score -= 300;
+    }
+    if (endPeriod + 2 <= periodsCount && facOccupied.has(endPeriod + 2) && !facOccupied.has(endPeriod + 1)) {
+      score -= 300;
+    }
+
+    return score;
+  };
+
+  // =========================================================================
+  // PHASE 1: Scored Best-Fit Constructive Placement
+  // =========================================================================
   for (const demand of demands) {
     let placed = false;
     let failureReason = 'No clash-free slot found across all days and periods';
@@ -406,9 +566,6 @@ export async function runSchedulerSolver(options: {
     const secondary = rooms.filter((r) => r.type !== demand.preferredRoomType);
     let candidateRooms = [...preferred, ...secondary];
 
-    // Home Classroom Affinity constraint:
-    // If this is a theory/regular class (span === 1 or preferred LECTURE_HALL/CLASSROOM),
-    // prioritize the section's dedicated Home Classroom at the top of candidateRooms!
     const homeRoomId = sectionHomeRoomMap.get(demand.sectionName);
     if (homeRoomId && demand.preferredRoomType !== 'COMPUTER_LAB') {
       candidateRooms.sort((a, b) => {
@@ -420,39 +577,36 @@ export async function runSchedulerSolver(options: {
       });
     }
 
-    // Invariant: For a faculty don't assign adjacent classes in diff sections
-    // Pass 1: Strict mode (allowAdjacentDiffSections = false) ensures zero back-to-back classes in different sections
-    // Pass 2: Fallback mode only if physically impossible otherwise
+    // Pass 1: Strict mode (allowAdjacentDiffSections = false) ensures zero back-to-back cross-section classes
+    // Pass 2: Fallback only if physically impossible otherwise
     for (const allowAdjacentDiffSections of [false, true]) {
       if (placed) break;
 
-      // Try placing with soft constraint (1 per day), then fallback to 2 per day if needed
       for (const maxPerDay of [1, 2]) {
         if (placed) break;
 
-        for (const day of activeDays) {
-          if (placed) break;
+        const candidateSlots: ScoredCandidateSlot[] = [];
 
-          // Soft optimization: try to spread course across different days
+        for (const day of activeDays) {
           const cDayKey = `course:${demand.courseId}:${demand.sectionName}:${day}`;
           if ((courseDayCount.get(cDayKey) || 0) >= maxPerDay) {
             continue;
           }
 
-        for (const startPeriod of possibleStarts) {
-          if (placed) break;
+          // Balance daily workloads: Max 1 multi-span lab per day for a section
+          const secLabKey = `section:${demand.sectionName}:${day}:labs`;
+          if (demand.span > 1 && (sectionLabDayCount.get(secLabKey) || 0) >= 1) {
+            continue;
+          }
 
-          // Check if faculty daily cap will be exceeded
           const facDayKey = `faculty:${demand.facultyId}:${day}`;
           const currentDaily = facultyPeriodCounts.get(facDayKey) || 0;
           const facLimits = facultyCapMap.get(demand.facultyId) || { daily: 4, weekly: 18 };
-
           if (currentDaily + demand.span > facLimits.daily) {
             failureReason = `Faculty ${demand.facultyCode} daily period limit (${facLimits.daily}) reached for ${day}`;
             continue;
           }
 
-          // Check weekly cap
           const facWeekKey = `faculty:${demand.facultyId}:week`;
           const currentWeekly = facultyPeriodCounts.get(facWeekKey) || 0;
           if (currentWeekly + demand.span > facLimits.weekly) {
@@ -460,20 +614,6 @@ export async function runSchedulerSolver(options: {
             continue;
           }
 
-          // Check Section Availability for all periods in span
-          let sectionBusy = false;
-          for (let s = 0; s < demand.span; s++) {
-            if (occupiedSlots.has(`section:${demand.sectionName}:${day}:${startPeriod + s}`)) {
-              sectionBusy = true;
-              break;
-            }
-          }
-          if (sectionBusy) {
-            failureReason = `Section ${demand.sectionName} already attending another class`;
-            continue;
-          }
-
-          // Student Constraint 1: Max 7 hours of classes/lab in 1 day for a section
           const secTotalKey = `section:${demand.sectionName}:${day}:total_hours`;
           const currentSectionDailyTotal = sectionDayTotalHours.get(secTotalKey) || 0;
           if (currentSectionDailyTotal + demand.span > 7) {
@@ -481,7 +621,6 @@ export async function runSchedulerSolver(options: {
             continue;
           }
 
-          // Student Constraint 2: Max 5 hours of teaching (theory) class in 1 day for a section
           const secTeachKey = `section:${demand.sectionName}:${day}:teaching_hours`;
           const currentSectionTeachingHours = sectionDayTeachingHours.get(secTeachKey) || 0;
           const isTeaching = demand.span === 1;
@@ -490,141 +629,772 @@ export async function runSchedulerSolver(options: {
             continue;
           }
 
-          // Student Constraint 3: Max 4 hours continuous classes or lab in 1 session (before or after lunch)
-          const sessionStart = lunchAfter > 0 && startPeriod > lunchAfter ? lunchAfter + 1 : 1;
-          const sessionEnd = lunchAfter > 0 && startPeriod <= lunchAfter ? lunchAfter : periodsCount;
-
-          let runBefore = 0;
-          for (let p = startPeriod - 1; p >= sessionStart; p--) {
-            if (occupiedSlots.has(`section:${demand.sectionName}:${day}:${p}`)) {
-              runBefore++;
-            } else {
-              break;
-            }
-          }
-
-          let runAfter = 0;
-          for (let p = startPeriod + demand.span; p <= sessionEnd; p++) {
-            if (occupiedSlots.has(`section:${demand.sectionName}:${day}:${p}`)) {
-              runAfter++;
-            } else {
-              break;
-            }
-          }
-
-          const totalContinuous = runBefore + demand.span + runAfter;
-          if (totalContinuous > 4) {
-            failureReason = `Section ${demand.sectionName} exceeds 4 continuous hours in 1 session (${totalContinuous} hrs)`;
-            continue;
-          }
-
-          // Check Faculty Availability for all periods in span
-          let facultyBusy = false;
-          for (let s = 0; s < demand.span; s++) {
-            if (occupiedSlots.has(`faculty:${demand.facultyId}:${day}:${startPeriod + s}`)) {
-              facultyBusy = true;
-              break;
-            }
-          }
-          if (facultyBusy) {
-            failureReason = `Faculty ${demand.facultyCode} already teaching at period ${startPeriod}`;
-            continue;
-          }
-
-          // Invariant: "For a faculty don't assign adjacent classes in diff sections"
-          // Unless separated by a lunch break, a teacher must not have back-to-back classes with different sections.
-          let hasAdjacentDiffSection = false;
-
-          const pPrev = startPeriod - 1;
-          if (pPrev >= 1) {
-            const isLunchBuffer = lunchAfter > 0 && pPrev === lunchAfter;
-            if (!isLunchBuffer) {
-              const prevSection = facultySectionSlotMap.get(`faculty:${demand.facultyId}:${day}:${pPrev}`);
-              if (prevSection && prevSection !== demand.sectionName) {
-                hasAdjacentDiffSection = true;
-              }
-            }
-          }
-
-          const pNext = startPeriod + demand.span;
-          if (pNext <= periodsCount) {
-            const isLunchBuffer = lunchAfter > 0 && (startPeriod + demand.span - 1) === lunchAfter;
-            if (!isLunchBuffer) {
-              const nextSection = facultySectionSlotMap.get(`faculty:${demand.facultyId}:${day}:${pNext}`);
-              if (nextSection && nextSection !== demand.sectionName) {
-                hasAdjacentDiffSection = true;
-              }
-            }
-          }
-
-          if (hasAdjacentDiffSection && !allowAdjacentDiffSections) {
-            failureReason = `Faculty ${demand.facultyCode} has an adjacent class in a different section around period ${startPeriod}`;
-            continue;
-          }
-
-          // Search for a free room
-          for (const room of candidateRooms) {
-            let roomBusy = false;
+          for (const startPeriod of possibleStarts) {
+            // Check Section Availability
+            let sectionBusy = false;
             for (let s = 0; s < demand.span; s++) {
-              if (occupiedSlots.has(`room:${room.id}:${day}:${startPeriod + s}`)) {
-                roomBusy = true;
+              if (occupiedSlots.has(`section:${demand.sectionName}:${day}:${startPeriod + s}`)) {
+                sectionBusy = true;
+                break;
+              }
+            }
+            if (sectionBusy) continue;
+
+            // Student Continuous Limit: Max 4 hours continuous in 1 session
+            const sessionStart = lunchAfter > 0 && startPeriod > lunchAfter ? lunchAfter + 1 : 1;
+            const sessionEnd = lunchAfter > 0 && startPeriod <= lunchAfter ? lunchAfter : periodsCount;
+
+            let runBefore = 0;
+            for (let p = startPeriod - 1; p >= sessionStart; p--) {
+              if (occupiedSlots.has(`section:${demand.sectionName}:${day}:${p}`)) runBefore++;
+              else break;
+            }
+
+            let runAfter = 0;
+            for (let p = startPeriod + demand.span; p <= sessionEnd; p++) {
+              if (occupiedSlots.has(`section:${demand.sectionName}:${day}:${p}`)) runAfter++;
+              else break;
+            }
+
+            if (runBefore + demand.span + runAfter > 4) continue;
+
+            // Check Faculty Availability
+            let facultyBusy = false;
+            for (let s = 0; s < demand.span; s++) {
+              if (occupiedSlots.has(`faculty:${demand.facultyId}:${day}:${startPeriod + s}`)) {
+                facultyBusy = true;
+                break;
+              }
+            }
+            if (facultyBusy) continue;
+
+            // Invariant: "For a faculty don't assign adjacent classes in diff sections"
+            let hasAdjacentDiffSection = false;
+            const pPrev = startPeriod - 1;
+            if (pPrev >= 1 && !(lunchAfter > 0 && pPrev === lunchAfter)) {
+              const prevSection = facultySectionSlotMap.get(`faculty:${demand.facultyId}:${day}:${pPrev}`);
+              if (prevSection && prevSection !== demand.sectionName) hasAdjacentDiffSection = true;
+            }
+
+            const pNext = startPeriod + demand.span;
+            if (pNext <= periodsCount && !(lunchAfter > 0 && (startPeriod + demand.span - 1) === lunchAfter)) {
+              const nextSection = facultySectionSlotMap.get(`faculty:${demand.facultyId}:${day}:${pNext}`);
+              if (nextSection && nextSection !== demand.sectionName) hasAdjacentDiffSection = true;
+            }
+
+            if (hasAdjacentDiffSection && !allowAdjacentDiffSections) continue;
+
+            // Find best available room for this slot
+            for (const room of candidateRooms) {
+              let roomBusy = false;
+              for (let s = 0; s < demand.span; s++) {
+                if (occupiedSlots.has(`room:${room.id}:${day}:${startPeriod + s}`)) {
+                  roomBusy = true;
+                  break;
+                }
+              }
+
+              if (!roomBusy) {
+                const score = scoreCandidateSlot({
+                  demand,
+                  day,
+                  startPeriod,
+                  room,
+                  homeRoomId,
+                });
+
+                candidateSlots.push({
+                  day,
+                  startPeriod,
+                  room,
+                  score,
+                  facDayKey,
+                  facWeekKey,
+                  secTotalKey,
+                  secTeachKey,
+                  cDayKey,
+                  currentDaily,
+                  currentWeekly,
+                  currentSectionDailyTotal,
+                  currentSectionTeachingHours,
+                  isTeaching,
+                  isLab: demand.span > 1,
+                  secLabKey,
+                });
+                break; // room candidate found for this (day, startPeriod)
+              }
+            }
+          }
+        }
+
+        // If candidate slots were found, select the one with the highest score!
+        if (candidateSlots.length > 0) {
+          candidateSlots.sort((a, b) => b.score - a.score);
+          const chosen = candidateSlots[0];
+
+          // Commit slot into occupied trackers
+          const secDayKey = `${demand.sectionName}:${chosen.day}`;
+          if (!sectionDayPeriods.has(secDayKey)) sectionDayPeriods.set(secDayKey, new Set<number>());
+          const facDayKeyStr = `${demand.facultyId}:${chosen.day}`;
+          if (!facultyDayPeriods.has(facDayKeyStr)) facultyDayPeriods.set(facDayKeyStr, new Set<number>());
+
+          for (let s = 0; s < demand.span; s++) {
+            const pIdx = chosen.startPeriod + s;
+            occupiedSlots.add(`room:${chosen.room.id}:${chosen.day}:${pIdx}`);
+            occupiedSlots.add(`faculty:${demand.facultyId}:${chosen.day}:${pIdx}`);
+            occupiedSlots.add(`section:${demand.sectionName}:${chosen.day}:${pIdx}`);
+            facultySectionSlotMap.set(`faculty:${demand.facultyId}:${chosen.day}:${pIdx}`, demand.sectionName);
+            sectionDayPeriods.get(secDayKey)!.add(pIdx);
+            facultyDayPeriods.get(facDayKeyStr)!.add(pIdx);
+          }
+
+          facultyPeriodCounts.set(chosen.facDayKey, chosen.currentDaily + demand.span);
+          facultyPeriodCounts.set(chosen.facWeekKey, chosen.currentWeekly + demand.span);
+
+          sectionDayTotalHours.set(chosen.secTotalKey, chosen.currentSectionDailyTotal + demand.span);
+          if (chosen.isTeaching) {
+            sectionDayTeachingHours.set(chosen.secTeachKey, chosen.currentSectionTeachingHours + 1);
+          }
+          if (chosen.isLab) {
+            sectionLabDayCount.set(chosen.secLabKey, (sectionLabDayCount.get(chosen.secLabKey) || 0) + 1);
+          }
+
+          courseDayCount.set(chosen.cDayKey, (courseDayCount.get(chosen.cDayKey) || 0) + 1);
+
+          placedSessions.push({
+            id: 'sess_' + Math.random().toString(36).substring(2, 10),
+            day: chosen.day,
+            periodIndex: chosen.startPeriod,
+            span: demand.span,
+            courseId: demand.courseId,
+            courseCode: demand.courseCode,
+            courseName: demand.courseName,
+            facultyId: demand.facultyId,
+            facultyName: demand.facultyName,
+            roomId: chosen.room.id,
+            roomCode: chosen.room.code,
+            roomName: chosen.room.name,
+            sectionName: demand.sectionName,
+            isPinned: false,
+          });
+
+          placed = true;
+          break;
+        }
+      }
+    }
+
+    if (!placed) {
+      unplacedDemands.push({ demand, reason: failureReason });
+    }
+  }
+
+  // =========================================================================
+  // PHASE 2A: Gap Compaction (Slide neighboring sessions to close ANY intra-session gap >= 1)
+  // =========================================================================
+  for (const day of activeDays) {
+    for (const sec of sectionsToSchedule) {
+      const secName = (sec.department_code && !sec.name.toUpperCase().startsWith(sec.department_code.toUpperCase()))
+        ? `${sec.department_code} - ${sec.name}`
+        : sec.name;
+
+      // Repeat compaction passes until no more gaps can be closed
+      for (let pass = 0; pass < 3; pass++) {
+        const daySessions = placedSessions
+          .filter((s) => s.sectionName === secName && s.day === day)
+          .sort((a, b) => a.periodIndex - b.periodIndex);
+
+        if (daySessions.length < 2) break;
+        let changed = false;
+
+        for (let i = 0; i < daySessions.length - 1; i++) {
+          const s1 = daySessions[i];
+          const s2 = daySessions[i + 1];
+
+          const s1End = s1.periodIndex + s1.span - 1;
+          const s2Start = s2.periodIndex;
+          const gap = s2Start - s1End - 1;
+
+          // Found a gap inside the same session (e.g. both in morning or both in afternoon)
+          const inSameMorning = lunchAfter > 0 && s1End <= lunchAfter && s2Start <= lunchAfter;
+          const inSameAfternoon = lunchAfter > 0 && s1End > lunchAfter && s2Start > lunchAfter;
+          const crossesLunch = lunchAfter > 0 && s1End <= lunchAfter && s2Start > lunchAfter;
+
+          if (gap >= 1 && (inSameMorning || inSameAfternoon)) {
+            // Option A: Slide s1 forward towards s2 so s1 ends right before s2 starts!
+            // e.g. s1 at P1 (span 1), s2 at P4 (span 1) -> newStart for s1 is P4 - 1 = P3
+            if (!s1.isPinned) {
+              const newStart = s2.periodIndex - s1.span;
+              const newEnd = newStart + s1.span - 1;
+
+              // Check if all periods in [newStart..newEnd] are free
+              let facFree = true;
+              let roomFree = true;
+              let secFree = true;
+
+              for (let p = newStart; p <= newEnd; p++) {
+                if (p >= s1.periodIndex && p <= s1.periodIndex + s1.span - 1) continue;
+                if (occupiedSlots.has(`faculty:${s1.facultyId}:${day}:${p}`)) facFree = false;
+                if (occupiedSlots.has(`room:${s1.roomId}:${day}:${p}`)) roomFree = false;
+                if (occupiedSlots.has(`section:${secName}:${day}:${p}`)) secFree = false;
+              }
+
+              let facAdjacentOk = true;
+              if (newStart - 1 >= 1 && !(lunchAfter > 0 && newStart - 1 === lunchAfter)) {
+                const prevSec = facultySectionSlotMap.get(`faculty:${s1.facultyId}:${day}:${newStart - 1}`);
+                if (prevSec && prevSec !== secName) facAdjacentOk = false;
+              }
+              if (newEnd + 1 <= periodsCount && !(lunchAfter > 0 && newEnd === lunchAfter)) {
+                const nextSec = facultySectionSlotMap.get(`faculty:${s1.facultyId}:${day}:${newEnd + 1}`);
+                if (nextSec && nextSec !== secName) facAdjacentOk = false;
+              }
+
+              const continuousRun = s1.span + s2.span;
+              if (facFree && roomFree && secFree && facAdjacentOk && continuousRun <= 4) {
+                // Remove s1 from old slots
+                for (let p = 0; p < s1.span; p++) {
+                  const oldP = s1.periodIndex + p;
+                  occupiedSlots.delete(`room:${s1.roomId}:${day}:${oldP}`);
+                  occupiedSlots.delete(`faculty:${s1.facultyId}:${day}:${oldP}`);
+                  occupiedSlots.delete(`section:${secName}:${day}:${oldP}`);
+                  facultySectionSlotMap.delete(`faculty:${s1.facultyId}:${day}:${oldP}`);
+                  sectionDayPeriods.get(`${secName}:${day}`)?.delete(oldP);
+                  facultyDayPeriods.get(`${s1.facultyId}:${day}`)?.delete(oldP);
+                }
+
+                s1.periodIndex = newStart;
+
+                // Add s1 to new slots
+                for (let p = 0; p < s1.span; p++) {
+                  const newP = s1.periodIndex + p;
+                  occupiedSlots.add(`room:${s1.roomId}:${day}:${newP}`);
+                  occupiedSlots.add(`faculty:${s1.facultyId}:${day}:${newP}`);
+                  occupiedSlots.add(`section:${secName}:${day}:${newP}`);
+                  facultySectionSlotMap.set(`faculty:${s1.facultyId}:${day}:${newP}`, secName);
+                  sectionDayPeriods.get(`${secName}:${day}`)?.add(newP);
+                  facultyDayPeriods.get(`${s1.facultyId}:${day}`)?.add(newP);
+                }
+                changed = true;
                 break;
               }
             }
 
-            if (!roomBusy) {
-              // Found a valid clash-free slot!
-              // 1. Commit slot in occupied tracker
-              for (let s = 0; s < demand.span; s++) {
-                const pIdx = startPeriod + s;
-                occupiedSlots.add(`room:${room.id}:${day}:${pIdx}`);
-                occupiedSlots.add(`faculty:${demand.facultyId}:${day}:${pIdx}`);
-                occupiedSlots.add(`section:${demand.sectionName}:${day}:${pIdx}`);
-                facultySectionSlotMap.set(`faculty:${demand.facultyId}:${day}:${pIdx}`, demand.sectionName);
+            // Option B: Slide s2 backward towards s1 so s2 starts right after s1 ends!
+            // e.g. s1 at P1 (span 1), s2 at P4 (span 1) -> newStart for s2 is P1 + 1 = P2
+            if (!s2.isPinned) {
+              const newStart = s1End + 1;
+              const newEnd = newStart + s2.span - 1;
+
+              let facFree = true;
+              let roomFree = true;
+              let secFree = true;
+
+              for (let p = newStart; p <= newEnd; p++) {
+                if (p >= s2.periodIndex && p <= s2.periodIndex + s2.span - 1) continue;
+                if (occupiedSlots.has(`faculty:${s2.facultyId}:${day}:${p}`)) facFree = false;
+                if (occupiedSlots.has(`room:${s2.roomId}:${day}:${p}`)) roomFree = false;
+                if (occupiedSlots.has(`section:${secName}:${day}:${p}`)) secFree = false;
               }
 
-              // 2. Increment faculty period counts
-              facultyPeriodCounts.set(facDayKey, currentDaily + demand.span);
-              facultyPeriodCounts.set(facWeekKey, currentWeekly + demand.span);
-
-              // 2b. Increment student section daily loads
-              sectionDayTotalHours.set(secTotalKey, currentSectionDailyTotal + demand.span);
-              if (isTeaching) {
-                sectionDayTeachingHours.set(secTeachKey, currentSectionTeachingHours + 1);
+              let facAdjacentOk = true;
+              if (newStart - 1 >= 1 && !(lunchAfter > 0 && newStart - 1 === lunchAfter)) {
+                const prevSec = facultySectionSlotMap.get(`faculty:${s2.facultyId}:${day}:${newStart - 1}`);
+                if (prevSec && prevSec !== secName) facAdjacentOk = false;
+              }
+              if (newEnd + 1 <= periodsCount && !(lunchAfter > 0 && newEnd === lunchAfter)) {
+                const nextSec = facultySectionSlotMap.get(`faculty:${s2.facultyId}:${day}:${newEnd + 1}`);
+                if (nextSec && nextSec !== secName) facAdjacentOk = false;
               }
 
-              // 3. Mark course scheduled for this day
-              courseDayCount.set(cDayKey, (courseDayCount.get(cDayKey) || 0) + 1);
+              const continuousRun = s1.span + s2.span;
+              if (facFree && roomFree && secFree && facAdjacentOk && continuousRun <= 4) {
+                for (let p = 0; p < s2.span; p++) {
+                  const oldP = s2.periodIndex + p;
+                  occupiedSlots.delete(`room:${s2.roomId}:${day}:${oldP}`);
+                  occupiedSlots.delete(`faculty:${s2.facultyId}:${day}:${oldP}`);
+                  occupiedSlots.delete(`section:${secName}:${day}:${oldP}`);
+                  facultySectionSlotMap.delete(`faculty:${s2.facultyId}:${day}:${oldP}`);
+                  sectionDayPeriods.get(`${secName}:${day}`)?.delete(oldP);
+                  facultyDayPeriods.get(`${s2.facultyId}:${day}`)?.delete(oldP);
+                }
 
-              // 4. Save placement
-              placedSessions.push({
-                id: 'sess_' + Math.random().toString(36).substring(2, 10),
-                day,
-                periodIndex: startPeriod,
-                span: demand.span,
-                courseId: demand.courseId,
-                courseCode: demand.courseCode,
-                courseName: demand.courseName,
-                facultyId: demand.facultyId,
-                facultyName: demand.facultyName,
-                roomId: room.id,
-                roomCode: room.code,
-                roomName: room.name,
-                sectionName: demand.sectionName,
-                isPinned: false,
-              });
+                s2.periodIndex = newStart;
 
-              placed = true;
+                for (let p = 0; p < s2.span; p++) {
+                  const newP = s2.periodIndex + p;
+                  occupiedSlots.add(`room:${s2.roomId}:${day}:${newP}`);
+                  occupiedSlots.add(`faculty:${s2.facultyId}:${day}:${newP}`);
+                  occupiedSlots.add(`section:${secName}:${day}:${newP}`);
+                  facultySectionSlotMap.set(`faculty:${s2.facultyId}:${day}:${newP}`, secName);
+                  sectionDayPeriods.get(`${secName}:${day}`)?.add(newP);
+                  facultyDayPeriods.get(`${s2.facultyId}:${day}`)?.add(newP);
+                }
+                changed = true;
+                break;
+              }
+            }
+          }
+        }
+
+        if (!changed) break;
+      }
+    }
+  }
+
+  // =========================================================================
+  // PHASE 2B: Isolated 1-Hour Session Eliminator (Guarantees >= 2 hours continuous)
+  // Multi-pass loop ensures any session left isolated by earlier moves gets resolved
+  // =========================================================================
+  for (let pass = 0; pass < 4; pass++) {
+    let changed = false;
+
+    for (const sec of sectionsToSchedule) {
+      const secName = (sec.department_code && !sec.name.toUpperCase().startsWith(sec.department_code.toUpperCase()))
+        ? `${sec.department_code} - ${sec.name}`
+        : sec.name;
+
+      for (const singleDay of activeDays) {
+        // Query fresh sessions for this section on this day
+        const currentSingleDaySessions = placedSessions.filter((s) => s.sectionName === secName && s.day === singleDay);
+
+        // Identify any session that is isolated (not contiguous with any other session in morning or afternoon)
+        const isolatedSessions = currentSingleDaySessions.filter((s) => {
+          if (s.isPinned || s.span > 1) return false;
+          const inMorning = lunchAfter > 0 && s.periodIndex <= lunchAfter;
+          const touchesPrev = currentSingleDaySessions.some((other) => {
+            const otherMorning = lunchAfter > 0 && other.periodIndex <= lunchAfter;
+            return inMorning === otherMorning && other.periodIndex + other.span === s.periodIndex;
+          });
+          const touchesNext = currentSingleDaySessions.some((other) => {
+            const otherMorning = lunchAfter > 0 && other.periodIndex <= lunchAfter;
+            return inMorning === otherMorning && s.periodIndex + s.span === other.periodIndex;
+          });
+          return !touchesPrev && !touchesNext;
+        });
+
+        for (const sessToMove of isolatedSessions) {
+          if (sessToMove.day !== singleDay) continue; // Already moved in earlier step
+          let resolved = false;
+
+          // Step 1: Can sessToMove slide on the SAME day to touch an existing session in the same morning/afternoon?
+          const otherSessionsOnSameDay = placedSessions.filter(
+            (s) => s.sectionName === secName && s.day === singleDay && s.id !== sessToMove.id
+          );
+
+          for (const targetSess of otherSessionsOnSameDay) {
+            if (resolved) break;
+
+            const isMorning = lunchAfter > 0 && targetSess.periodIndex <= lunchAfter;
+            const candidateStarts: number[] = [];
+            const beforeStart = targetSess.periodIndex - sessToMove.span;
+            const afterStart = targetSess.periodIndex + targetSess.span;
+
+            if (isMorning) {
+              if (beforeStart >= 1) candidateStarts.push(beforeStart);
+              if (afterStart <= lunchAfter) candidateStarts.push(afterStart);
+            } else {
+              if (lunchAfter > 0 ? beforeStart > lunchAfter : beforeStart >= 1) candidateStarts.push(beforeStart);
+              if (afterStart <= periodsCount) candidateStarts.push(afterStart);
+            }
+
+            for (const testPeriod of candidateStarts) {
+              const testEnd = testPeriod + sessToMove.span - 1;
+              if (lunchAfter > 0 && testPeriod <= lunchAfter && testEnd > lunchAfter) continue;
+
+              if (occupiedSlots.has(`section:${secName}:${singleDay}:${testPeriod}`)) continue;
+              if (occupiedSlots.has(`faculty:${sessToMove.facultyId}:${singleDay}:${testPeriod}`)) continue;
+
+              let facAdjOk = true;
+              if (testPeriod - 1 >= 1 && !(lunchAfter > 0 && testPeriod - 1 === lunchAfter)) {
+                const prevSec = facultySectionSlotMap.get(`faculty:${sessToMove.facultyId}:${singleDay}:${testPeriod - 1}`);
+                if (prevSec && prevSec !== secName) facAdjOk = false;
+              }
+              if (testEnd + 1 <= periodsCount && !(lunchAfter > 0 && testEnd === lunchAfter)) {
+                const nextSec = facultySectionSlotMap.get(`faculty:${sessToMove.facultyId}:${singleDay}:${testEnd + 1}`);
+                if (nextSec && nextSec !== secName) facAdjOk = false;
+              }
+              if (!facAdjOk) continue;
+
+              let chosenRoomId = sessToMove.roomId;
+              let chosenRoomCode = sessToMove.roomCode;
+              let chosenRoomName = sessToMove.roomName;
+
+              if (occupiedSlots.has(`room:${chosenRoomId}:${singleDay}:${testPeriod}`)) {
+                const altRoom = theoryRooms.find((r) => !occupiedSlots.has(`room:${r.id}:${singleDay}:${testPeriod}`));
+                if (altRoom) {
+                  chosenRoomId = altRoom.id;
+                  chosenRoomCode = altRoom.code;
+                  chosenRoomName = altRoom.name;
+                } else {
+                  continue;
+                }
+              }
+
+              // Perform slide on same day
+              occupiedSlots.delete(`room:${sessToMove.roomId}:${singleDay}:${sessToMove.periodIndex}`);
+              occupiedSlots.delete(`faculty:${sessToMove.facultyId}:${singleDay}:${sessToMove.periodIndex}`);
+              occupiedSlots.delete(`section:${secName}:${singleDay}:${sessToMove.periodIndex}`);
+              facultySectionSlotMap.delete(`faculty:${sessToMove.facultyId}:${singleDay}:${sessToMove.periodIndex}`);
+              sectionDayPeriods.get(`${secName}:${singleDay}`)?.delete(sessToMove.periodIndex);
+              facultyDayPeriods.get(`${sessToMove.facultyId}:${singleDay}`)?.delete(sessToMove.periodIndex);
+
+              sessToMove.periodIndex = testPeriod;
+              sessToMove.roomId = chosenRoomId;
+              sessToMove.roomCode = chosenRoomCode;
+              sessToMove.roomName = chosenRoomName;
+
+              occupiedSlots.add(`room:${chosenRoomId}:${singleDay}:${testPeriod}`);
+              occupiedSlots.add(`faculty:${sessToMove.facultyId}:${singleDay}:${testPeriod}`);
+              occupiedSlots.add(`section:${secName}:${singleDay}:${testPeriod}`);
+              facultySectionSlotMap.set(`faculty:${sessToMove.facultyId}:${singleDay}:${testPeriod}`, secName);
+              sectionDayPeriods.get(`${secName}:${singleDay}`)?.add(testPeriod);
+              facultyDayPeriods.get(`${sessToMove.facultyId}:${singleDay}`)?.add(testPeriod);
+
+              resolved = true;
+              changed = true;
               break;
+            }
+          }
+
+          if (resolved) continue;
+
+          // Step 2: Relocate sessToMove to ANOTHER DAY where it attaches into a >= 2 hr block
+          for (const targetDay of activeDays) {
+            if (targetDay === singleDay || resolved) continue;
+
+            const targetSessions = placedSessions.filter((s) => s.sectionName === secName && s.day === targetDay);
+            const targetTotalHrs = targetSessions.reduce((acc, s) => acc + s.span, 0);
+            const targetTheoryHrs = targetSessions.filter((s) => s.span === 1).length;
+
+            // Target day can have 1..4 hours (so adding 1 hour produces 2..5 hours)
+            if (targetTotalHrs < 1 || targetTotalHrs > 4 || targetTheoryHrs >= 5) continue;
+
+            const cTargetCount = targetSessions.filter((s) => s.courseId === sessToMove.courseId).length;
+            if (cTargetCount >= 2) continue;
+
+            const facTargetCount = facultyPeriodCounts.get(`faculty:${sessToMove.facultyId}:${targetDay}`) || 0;
+            const facLimits = facultyCapMap.get(sessToMove.facultyId) || { daily: 4, weekly: 18 };
+            if (facTargetCount + 1 > facLimits.daily) continue;
+
+            // Connect directly to any existing block on target day, respecting lunch recess
+            const touchingPeriods = new Set<number>();
+            for (const s of targetSessions) {
+              const isMorning = lunchAfter > 0 && s.periodIndex <= lunchAfter;
+              const beforeStart = s.periodIndex - sessToMove.span;
+              const afterStart = s.periodIndex + s.span;
+
+              if (isMorning) {
+                if (beforeStart >= 1) touchingPeriods.add(beforeStart);
+                if (afterStart <= lunchAfter) touchingPeriods.add(afterStart);
+              } else {
+                if (lunchAfter > 0 ? beforeStart > lunchAfter : beforeStart >= 1) touchingPeriods.add(beforeStart);
+                if (afterStart <= periodsCount) touchingPeriods.add(afterStart);
+              }
+            }
+            const candidatePeriods = Array.from(touchingPeriods).filter((p) => p >= 1 && p <= periodsCount);
+
+            for (const testPeriod of candidatePeriods) {
+              if (resolved) break;
+
+              const testEnd = testPeriod + sessToMove.span - 1;
+              if (lunchAfter > 0 && testPeriod <= lunchAfter && testEnd > lunchAfter) continue;
+
+              if (occupiedSlots.has(`section:${secName}:${targetDay}:${testPeriod}`)) continue;
+              if (occupiedSlots.has(`faculty:${sessToMove.facultyId}:${targetDay}:${testPeriod}`)) continue;
+
+              let facAdjOk = true;
+              if (testPeriod - 1 >= 1 && !(lunchAfter > 0 && testPeriod - 1 === lunchAfter)) {
+                const prevSec = facultySectionSlotMap.get(`faculty:${sessToMove.facultyId}:${targetDay}:${testPeriod - 1}`);
+                if (prevSec && prevSec !== secName) facAdjOk = false;
+              }
+              if (testEnd + 1 <= periodsCount && !(lunchAfter > 0 && testEnd === lunchAfter)) {
+                const nextSec = facultySectionSlotMap.get(`faculty:${sessToMove.facultyId}:${targetDay}:${testEnd + 1}`);
+                if (nextSec && nextSec !== secName) facAdjOk = false;
+              }
+              if (!facAdjOk) continue;
+
+              const sessionStart = lunchAfter > 0 && testPeriod > lunchAfter ? lunchAfter + 1 : 1;
+              const sessionEnd = lunchAfter > 0 && testPeriod <= lunchAfter ? lunchAfter : periodsCount;
+              let continuousRun = 1;
+              for (let p = testPeriod - 1; p >= sessionStart; p--) {
+                if (occupiedSlots.has(`section:${secName}:${targetDay}:${p}`)) continuousRun++;
+                else break;
+              }
+              for (let p = testEnd + 1; p <= sessionEnd; p++) {
+                if (occupiedSlots.has(`section:${secName}:${targetDay}:${p}`)) continuousRun++;
+                else break;
+              }
+              if (continuousRun > 4) continue;
+
+              let chosenRoomId = sessToMove.roomId;
+              let chosenRoomCode = sessToMove.roomCode;
+              let chosenRoomName = sessToMove.roomName;
+
+              if (occupiedSlots.has(`room:${chosenRoomId}:${targetDay}:${testPeriod}`)) {
+                const altRoom = theoryRooms.find((r) => !occupiedSlots.has(`room:${r.id}:${targetDay}:${testPeriod}`));
+                if (altRoom) {
+                  chosenRoomId = altRoom.id;
+                  chosenRoomCode = altRoom.code;
+                  chosenRoomName = altRoom.name;
+                } else {
+                  continue;
+                }
+              }
+
+              // Move session to targetDay!
+              occupiedSlots.delete(`room:${sessToMove.roomId}:${singleDay}:${sessToMove.periodIndex}`);
+              occupiedSlots.delete(`faculty:${sessToMove.facultyId}:${singleDay}:${sessToMove.periodIndex}`);
+              occupiedSlots.delete(`section:${secName}:${singleDay}:${sessToMove.periodIndex}`);
+              facultySectionSlotMap.delete(`faculty:${sessToMove.facultyId}:${singleDay}:${sessToMove.periodIndex}`);
+              sectionDayPeriods.get(`${secName}:${singleDay}`)?.delete(sessToMove.periodIndex);
+              facultyDayPeriods.get(`${sessToMove.facultyId}:${singleDay}`)?.delete(sessToMove.periodIndex);
+
+              facultyPeriodCounts.set(`faculty:${sessToMove.facultyId}:${singleDay}`, (facultyPeriodCounts.get(`faculty:${sessToMove.facultyId}:${singleDay}`) || 1) - 1);
+              facultyPeriodCounts.set(`faculty:${sessToMove.facultyId}:${targetDay}`, (facultyPeriodCounts.get(`faculty:${sessToMove.facultyId}:${targetDay}`) || 0) + 1);
+
+              const oldDayRemaining = placedSessions.filter((s) => s.sectionName === secName && s.day === singleDay && s.id !== sessToMove.id);
+              const oldDayRemainingTotal = oldDayRemaining.reduce((acc, s) => acc + s.span, 0);
+              const oldDayRemainingTheory = oldDayRemaining.filter((s) => s.span === 1).length;
+
+              sectionDayTotalHours.set(`section:${secName}:${singleDay}:total_hours`, oldDayRemainingTotal);
+              sectionDayTotalHours.set(`section:${secName}:${singleDay}:teaching_hours`, oldDayRemainingTheory);
+              sectionDayTotalHours.set(`section:${secName}:${targetDay}:total_hours`, targetTotalHrs + 1);
+              sectionDayTeachingHours.set(`section:${secName}:${targetDay}:teaching_hours`, targetTheoryHrs + 1);
+
+              occupiedSlots.add(`room:${chosenRoomId}:${targetDay}:${testPeriod}`);
+              occupiedSlots.add(`faculty:${sessToMove.facultyId}:${targetDay}:${testPeriod}`);
+              occupiedSlots.add(`section:${secName}:${targetDay}:${testPeriod}`);
+              facultySectionSlotMap.set(`faculty:${sessToMove.facultyId}:${targetDay}:${testPeriod}`, secName);
+              if (!sectionDayPeriods.has(`${secName}:${targetDay}`)) sectionDayPeriods.set(`${secName}:${targetDay}`, new Set<number>());
+              sectionDayPeriods.get(`${secName}:${targetDay}`)!.add(testPeriod);
+              if (!facultyDayPeriods.has(`${sessToMove.facultyId}:${targetDay}`)) facultyDayPeriods.set(`${sessToMove.facultyId}:${targetDay}`, new Set<number>());
+              facultyDayPeriods.get(`${sessToMove.facultyId}:${targetDay}`)!.add(testPeriod);
+
+              sessToMove.day = targetDay;
+              sessToMove.periodIndex = testPeriod;
+              sessToMove.roomId = chosenRoomId;
+              sessToMove.roomCode = chosenRoomCode;
+              sessToMove.roomName = chosenRoomName;
+
+              resolved = true;
+              changed = true;
+              break;
+            }
+          }
+
+          if (resolved) continue;
+
+          // Step 3: Reverse Donor Compaction (Pull a session from an overloaded day to attach to sessToMove on singleDay)
+          for (const donorDay of activeDays) {
+            if (donorDay === singleDay || resolved) continue;
+
+            const donorSessions = placedSessions.filter((s) => s.sectionName === secName && s.day === donorDay);
+            const donorTotalHrs = donorSessions.reduce((acc, s) => acc + s.span, 0);
+            if (donorTotalHrs < 4) continue; // Don't strip days that only have 2 or 3 hours
+
+            // Candidate donor sessions: 1-hour theory sessions not pinned
+            const donorCandidates = donorSessions.filter((s) => !s.isPinned && s.span === 1);
+
+            for (const sDonor of donorCandidates) {
+              if (resolved) break;
+
+              // Check if trailing sessions on donorDay can slide backward to keep donorDay compact
+              const isMorningDonor = lunchAfter > 0 && sDonor.periodIndex <= lunchAfter;
+              const trailingDonor = donorSessions
+                .filter((s) => s.id !== sDonor.id && s.periodIndex > sDonor.periodIndex && (lunchAfter > 0 ? (s.periodIndex <= lunchAfter) === isMorningDonor : true))
+                .sort((a, b) => a.periodIndex - b.periodIndex);
+
+              let canSlide = true;
+              for (const tr of trailingDonor) {
+                if (tr.isPinned) { canSlide = false; break; }
+                const newP = tr.periodIndex - sDonor.span;
+                if (newP - 1 >= 1 && !(lunchAfter > 0 && newP - 1 === lunchAfter)) {
+                  const prevSec = facultySectionSlotMap.get(`faculty:${tr.facultyId}:${donorDay}:${newP - 1}`);
+                  if (prevSec && prevSec !== secName) { canSlide = false; break; }
+                }
+              }
+              if (!canSlide) continue;
+
+              // Course limit on singleDay
+              const cSingleDayCount = currentSingleDaySessions.filter((s) => s.courseId === sDonor.courseId).length;
+              if (cSingleDayCount >= 2) continue;
+
+              // Faculty daily limit on singleDay
+              const facSingleDayCount = facultyPeriodCounts.get(`faculty:${sDonor.facultyId}:${singleDay}`) || 0;
+              const facLimits = facultyCapMap.get(sDonor.facultyId) || { daily: 4, weekly: 18 };
+              if (facSingleDayCount + 1 > facLimits.daily) continue;
+
+              // Touching candidates on singleDay
+              const isMorning = lunchAfter > 0 && sessToMove.periodIndex <= lunchAfter;
+              const candidateStarts: number[] = [];
+              const beforeStart = sessToMove.periodIndex - sDonor.span;
+              const afterStart = sessToMove.periodIndex + sessToMove.span;
+
+              if (isMorning) {
+                if (beforeStart >= 1) candidateStarts.push(beforeStart);
+                if (afterStart <= lunchAfter) candidateStarts.push(afterStart);
+              } else {
+                if (lunchAfter > 0 ? beforeStart > lunchAfter : beforeStart >= 1) candidateStarts.push(beforeStart);
+                if (afterStart <= periodsCount) candidateStarts.push(afterStart);
+              }
+
+              for (const testPeriod of candidateStarts) {
+                const testEnd = testPeriod + sDonor.span - 1;
+                if (lunchAfter > 0 && testPeriod <= lunchAfter && testEnd > lunchAfter) continue;
+
+                if (occupiedSlots.has(`section:${secName}:${singleDay}:${testPeriod}`)) continue;
+                if (occupiedSlots.has(`faculty:${sDonor.facultyId}:${singleDay}:${testPeriod}`)) continue;
+
+                let facAdjOk = true;
+                if (testPeriod - 1 >= 1 && !(lunchAfter > 0 && testPeriod - 1 === lunchAfter)) {
+                  const prevSec = facultySectionSlotMap.get(`faculty:${sDonor.facultyId}:${singleDay}:${testPeriod - 1}`);
+                  if (prevSec && prevSec !== secName) facAdjOk = false;
+                }
+                if (testEnd + 1 <= periodsCount && !(lunchAfter > 0 && testEnd === lunchAfter)) {
+                  const nextSec = facultySectionSlotMap.get(`faculty:${sDonor.facultyId}:${singleDay}:${testEnd + 1}`);
+                  if (nextSec && nextSec !== secName) facAdjOk = false;
+                }
+                if (!facAdjOk) continue;
+
+                // Max continuous run check on singleDay
+                const sessionStart = lunchAfter > 0 && testPeriod > lunchAfter ? lunchAfter + 1 : 1;
+                const sessionEnd = lunchAfter > 0 && testPeriod <= lunchAfter ? lunchAfter : periodsCount;
+                let continuousRun = 1;
+                for (let p = testPeriod - 1; p >= sessionStart; p--) {
+                  if (occupiedSlots.has(`section:${secName}:${singleDay}:${p}`)) continuousRun++;
+                  else break;
+                }
+                for (let p = testEnd + 1; p <= sessionEnd; p++) {
+                  if (occupiedSlots.has(`section:${secName}:${singleDay}:${p}`)) continuousRun++;
+                  else break;
+                }
+                if (continuousRun > 4) continue;
+
+                let chosenRoomId = sDonor.roomId;
+                let chosenRoomCode = sDonor.roomCode;
+                let chosenRoomName = sDonor.roomName;
+
+                if (occupiedSlots.has(`room:${chosenRoomId}:${singleDay}:${testPeriod}`)) {
+                  const altRoom = theoryRooms.find((r) => !occupiedSlots.has(`room:${r.id}:${singleDay}:${testPeriod}`));
+                  if (altRoom) {
+                    chosenRoomId = altRoom.id;
+                    chosenRoomCode = altRoom.code;
+                    chosenRoomName = altRoom.name;
+                  } else {
+                    continue;
+                  }
+                }
+
+                // 1. Remove sDonor from donorDay
+                occupiedSlots.delete(`room:${sDonor.roomId}:${donorDay}:${sDonor.periodIndex}`);
+                occupiedSlots.delete(`faculty:${sDonor.facultyId}:${donorDay}:${sDonor.periodIndex}`);
+                occupiedSlots.delete(`section:${secName}:${donorDay}:${sDonor.periodIndex}`);
+                facultySectionSlotMap.delete(`faculty:${sDonor.facultyId}:${donorDay}:${sDonor.periodIndex}`);
+                sectionDayPeriods.get(`${secName}:${donorDay}`)?.delete(sDonor.periodIndex);
+                facultyDayPeriods.get(`${sDonor.facultyId}:${donorDay}`)?.delete(sDonor.periodIndex);
+
+                facultyPeriodCounts.set(`faculty:${sDonor.facultyId}:${donorDay}`, (facultyPeriodCounts.get(`faculty:${sDonor.facultyId}:${donorDay}`) || 1) - 1);
+                facultyPeriodCounts.set(`faculty:${sDonor.facultyId}:${singleDay}`, (facultyPeriodCounts.get(`faculty:${sDonor.facultyId}:${singleDay}`) || 0) + 1);
+
+                // 2. Slide trailing sessions on donorDay backwards by sDonor.span
+                for (const tr of trailingDonor) {
+                  for (let p = 0; p < tr.span; p++) {
+                    const oldP = tr.periodIndex + p;
+                    occupiedSlots.delete(`room:${tr.roomId}:${donorDay}:${oldP}`);
+                    occupiedSlots.delete(`faculty:${tr.facultyId}:${donorDay}:${oldP}`);
+                    occupiedSlots.delete(`section:${secName}:${donorDay}:${oldP}`);
+                    facultySectionSlotMap.delete(`faculty:${tr.facultyId}:${donorDay}:${oldP}`);
+                    sectionDayPeriods.get(`${secName}:${donorDay}`)?.delete(oldP);
+                    facultyDayPeriods.get(`${tr.facultyId}:${donorDay}`)?.delete(oldP);
+                  }
+                  tr.periodIndex -= sDonor.span;
+                  for (let p = 0; p < tr.span; p++) {
+                    const newP = tr.periodIndex + p;
+                    occupiedSlots.add(`room:${tr.roomId}:${donorDay}:${newP}`);
+                    occupiedSlots.add(`faculty:${tr.facultyId}:${donorDay}:${newP}`);
+                    occupiedSlots.add(`section:${secName}:${donorDay}:${newP}`);
+                    facultySectionSlotMap.set(`faculty:${tr.facultyId}:${donorDay}:${newP}`, secName);
+                    sectionDayPeriods.get(`${secName}:${donorDay}`)?.add(newP);
+                    facultyDayPeriods.get(`${tr.facultyId}:${donorDay}`)?.add(newP);
+                  }
+                }
+
+                // 3. Add sDonor to singleDay at testPeriod
+                occupiedSlots.add(`room:${chosenRoomId}:${singleDay}:${testPeriod}`);
+                occupiedSlots.add(`faculty:${sDonor.facultyId}:${singleDay}:${testPeriod}`);
+                occupiedSlots.add(`section:${secName}:${singleDay}:${testPeriod}`);
+                facultySectionSlotMap.set(`faculty:${sDonor.facultyId}:${singleDay}:${testPeriod}`, secName);
+                if (!sectionDayPeriods.has(`${secName}:${singleDay}`)) sectionDayPeriods.set(`${secName}:${singleDay}`, new Set<number>());
+                sectionDayPeriods.get(`${secName}:${singleDay}`)!.add(testPeriod);
+                if (!facultyDayPeriods.has(`${sDonor.facultyId}:${singleDay}`)) facultyDayPeriods.set(`${sDonor.facultyId}:${singleDay}`, new Set<number>());
+                facultyDayPeriods.get(`${sDonor.facultyId}:${singleDay}`)!.add(testPeriod);
+
+                sDonor.day = singleDay;
+                sDonor.periodIndex = testPeriod;
+                sDonor.roomId = chosenRoomId;
+                sDonor.roomCode = chosenRoomCode;
+                sDonor.roomName = chosenRoomName;
+
+                resolved = true;
+                changed = true;
+                break;
+              }
             }
           }
         }
       }
     }
+
+    if (!changed) break;
   }
 
-    if (!placed) {
-      unplacedDemands.push({ demand, reason: failureReason });
+  // =========================================================================
+  // Relief & Compactness Quality Metrics
+  // =========================================================================
+  let singleHourDaysCount = 0;
+  let isolatedGapsCount = 0;
+  let reliefDaysCount = 0;
+  let contiguousBlocksCount = 0;
+
+  for (const sec of sectionsToSchedule) {
+    const secName = (sec.department_code && !sec.name.toUpperCase().startsWith(sec.department_code.toUpperCase()))
+      ? `${sec.department_code} - ${sec.name}`
+      : sec.name;
+
+    for (const day of activeDays) {
+      const secSessions = placedSessions
+        .filter((s) => s.sectionName === secName && s.day === day)
+        .sort((a, b) => a.periodIndex - b.periodIndex);
+
+      const totalHrs = secSessions.reduce((acc, s) => acc + s.span, 0);
+      if (totalHrs === 0) {
+        reliefDaysCount++;
+      } else if (totalHrs === 1) {
+        singleHourDaysCount++;
+      } else if (totalHrs >= 2) {
+        contiguousBlocksCount++;
+      }
+
+      const occupied = new Set<number>();
+      for (const s of secSessions) {
+        for (let p = 0; p < s.span; p++) occupied.add(s.periodIndex + p);
+      }
+      const sortedPeriods = Array.from(occupied).sort((a, b) => a - b);
+      for (let i = 0; i < sortedPeriods.length - 1; i++) {
+        if (sortedPeriods[i + 1] - sortedPeriods[i] === 2) {
+          const gapPeriod = sortedPeriods[i] + 1;
+          const crossesLunch = lunchAfter > 0 && sortedPeriods[i] <= lunchAfter && sortedPeriods[i + 1] > lunchAfter;
+          if (crossesLunch) {
+            if (sortedPeriods[i] === lunchAfter && sortedPeriods[i + 1] === lunchAfter + 1) {
+              // Standard lunch recess
+            } else {
+              isolatedGapsCount++;
+            }
+          } else {
+            isolatedGapsCount++;
+          }
+        }
+      }
     }
   }
 
@@ -663,5 +1433,9 @@ export async function runSchedulerSolver(options: {
     unplacedDemands,
     durationMs,
     placementRate,
+    singleHourDaysCount,
+    isolatedGapsCount,
+    contiguousBlocksCount,
+    reliefDaysCount,
   };
 }

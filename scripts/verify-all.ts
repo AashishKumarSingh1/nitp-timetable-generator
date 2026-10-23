@@ -189,7 +189,47 @@ async function runVerification() {
   if (studentDailyTotalViolations > 0 || studentTeachingHoursViolations > 0 || studentContinuousViolations > 0 || lunchRecessViolations > 0) {
     throw new Error('Student Workload / Recess Invariants Failed!');
   }
-  console.log('   ✅ Student Workload & Session Invariants: 100% VERIFIED\n');
+  console.log('   ✅ Student Workload & Session Invariants: 100% VERIFIED');
+
+  // Verify Student Relief Invariants:
+  // 1. Zero isolated 1-hour dead gaps within sessions
+  // 2. Zero single-class days (at least 2-3 hours continuous per class day)
+  console.log('   - Verifying Student Relief & Anti-Gap Invariants...');
+  let isolatedGapsFound = 0;
+  let singleHourDaysFound = 0;
+
+  for (const [key, sessList] of sectionDaySessions.entries()) {
+    const totalHours = sessList.reduce((acc, s) => acc + s.span, 0);
+    if (totalHours === 1) {
+      console.error(`   ❌ Single-Class Day Violation: ${key} has only 1 hour!`);
+      singleHourDaysFound++;
+    }
+
+    const occupiedPeriods = new Set<number>();
+    for (const s of sessList) {
+      for (let p = 0; p < s.span; p++) occupiedPeriods.add(s.period_index + p);
+    }
+    const sorted = Array.from(occupiedPeriods).sort((a, b) => a - b);
+    for (let i = 0; i < sorted.length - 1; i++) {
+      if (sorted[i + 1] - sorted[i] === 2) {
+        // Gap of 1 period
+        // Check if lunch separates them cleanly (e.g. sorted[i] === 4 and sorted[i+1] === 5)
+        if (sorted[i] === 4 && sorted[i + 1] === 5) {
+          // Normal lunch recess
+        } else {
+          console.error(`   ❌ Isolated 1-Hour Dead Gap: ${key} has empty P${sorted[i] + 1} between P${sorted[i]} and P${sorted[i + 1]}`);
+          isolatedGapsFound++;
+        }
+      }
+    }
+  }
+
+  console.log(`   - Isolated 1-Hour Gaps: ${isolatedGapsFound}`);
+  console.log(`   - Single-Class Days (<2h): ${singleHourDaysFound}`);
+  if (isolatedGapsFound > 0 || singleHourDaysFound > 0) {
+    throw new Error(`Student Relief Invariants Failed! Gaps: ${isolatedGapsFound}, Single-hour days: ${singleHourDaysFound}`);
+  }
+  console.log('   ✅ Student Relief & Anti-Gap Invariants: 100% VERIFIED\n');
 
   // Test 3: Anti-Cheating Seating Engine Checkerboard Invariant
   console.log('3️⃣ Running Anti-Cheating Seating Interleaving Algorithm...');

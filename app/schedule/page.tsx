@@ -2722,7 +2722,7 @@ export default function SchedulePage() {
           </div>
 
           {solverResult && (
-            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs space-y-1">
+            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs space-y-2">
               <div className="font-bold flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                 Solver Execution Result:
@@ -2733,6 +2733,32 @@ export default function SchedulePage() {
                 <strong>{solverResult.placementRate}%</strong> placement rate) in{' '}
                 {solverResult.durationMs}ms.
               </p>
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-emerald-200/60 text-[11px]">
+                <div className="flex items-center gap-1 text-emerald-800">
+                  <span className="font-semibold">Isolated 1-Hr Gaps:</span>{' '}
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 font-bold text-emerald-900">
+                    {solverResult.isolatedGapsCount ?? 0}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 text-emerald-800">
+                  <span className="font-semibold">Single-Class Days:</span>{' '}
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 font-bold text-emerald-900">
+                    {solverResult.singleHourDaysCount ?? 0}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 text-emerald-800">
+                  <span className="font-semibold">Continuous Blocks (2-4h):</span>{' '}
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 font-bold text-emerald-900">
+                    {solverResult.contiguousBlocksCount ?? 0}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 text-emerald-800">
+                  <span className="font-semibold">Full Relief / Off Days:</span>{' '}
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 font-bold text-emerald-900">
+                    {solverResult.reliefDaysCount ?? 0}
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 
