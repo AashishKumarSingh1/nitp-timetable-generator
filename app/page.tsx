@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Calendar, ArrowRight, ShieldCheck, Users, DoorOpen, Armchair, Sparkles } from 'lucide-react';
+import { Calendar, ArrowRight, ShieldCheck, Users, DoorOpen, Armchair } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 

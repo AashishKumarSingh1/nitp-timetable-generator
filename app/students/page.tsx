@@ -323,9 +323,6 @@ export default function StudentsPage() {
             <GraduationCap className="w-6 h-6 text-red-700" />
             Student Cohort Directory
           </h1>
-          <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-            Manage student registrations, academic branches, and rosters for the Anti-Cheating Seating Engine
-          </p>
         </div>
 
         <div className="flex items-center gap-2.5">

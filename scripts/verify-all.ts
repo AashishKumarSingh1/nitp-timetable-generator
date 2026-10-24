@@ -268,7 +268,8 @@ async function runVerification() {
   if (!seatingRes.zeroAdjacentCollisionsVerified) {
     throw new Error('Anti-cheating algorithm produced adjacent peers!');
   }
-  console.log('   ✅ Anti-Cheating Invariant: 100% VERIFIED\n');
+  // Clean up verification test artifacts so database starts clean
+  await execute('DELETE FROM class_sessions WHERE is_pinned = 0');
 
   console.log('🎉 ALL SYSTEM ACCEPTANCE CHECKS PASSED WITH 100% SUCCESS!');
 }

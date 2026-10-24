@@ -4,14 +4,36 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   label?: string;
   error?: string;
   helperText?: string;
+  containerClassName?: string;
 }
 
+const WIDTH_REGEX = /(?:^|\s)(w-\S+|sm:w-\S+|md:w-\S+|lg:w-\S+|xl:w-\S+|min-w-\S+|max-w-\S+)/g;
+
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className = '', label, error, helperText, id, ...props }, ref) => {
+  (
+    {
+      className = '',
+      containerClassName,
+      label,
+      error,
+      helperText,
+      id,
+      ...props
+    },
+    ref
+  ) => {
     const inputId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
 
+    const widthMatches = className.match(WIDTH_REGEX) || [];
+    const extractedWidth = widthMatches.map((m) => m.trim()).join(' ');
+    const remainingClass = className.replace(WIDTH_REGEX, ' ').replace(/\s+/g, ' ').trim();
+
+    const finalContainerClass = containerClassName
+      ? `${containerClassName} space-y-1.5`
+      : `${extractedWidth || 'w-full'} space-y-1.5`;
+
     return (
-      <div className="w-full space-y-1.5">
+      <div className={finalContainerClass}>
         {label && (
           <label
             htmlFor={inputId}
@@ -27,7 +49,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             error
               ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20'
               : 'border-zinc-300 hover:border-zinc-400'
-          } ${className}`}
+          } ${remainingClass}`}
           {...props}
         />
         {error ? (

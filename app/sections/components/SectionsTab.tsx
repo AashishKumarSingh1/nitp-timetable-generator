@@ -73,16 +73,16 @@ export function SectionsTab({
       {/* Search and Filters Strip */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="relative flex-1 w-full max-w-md">
-          <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-3" />
+          <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-2.5 z-10 pointer-events-none" />
           <Input
             placeholder="Search sections by name, branch code..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-10 text-xs"
+            className="pl-10 text-xs py-1.5"
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full sm:w-auto">
           <Select
             value={deptFilter}
             onChange={(e) => setDeptFilter(e.target.value)}
@@ -109,7 +109,7 @@ export function SectionsTab({
             ))}
           </Select>
 
-          <Button onClick={onOpenAddModal} variant="primary" size="sm" className="text-xs shrink-0">
+          <Button onClick={onOpenAddModal} variant="primary" size="sm" className="text-xs shrink-0 whitespace-nowrap">
             <Plus className="w-3.5 h-3.5 mr-1" />
             Add Section
           </Button>

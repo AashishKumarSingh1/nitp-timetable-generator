@@ -7,7 +7,6 @@ import {
   UserCheck,
   Plus,
   Layers,
-  Sparkles,
   GraduationCap,
   Clock,
   FlaskConical,
@@ -133,9 +132,6 @@ export default function SectionsPage() {
             <Layers className="w-6 h-6 text-red-700" />
             Curriculum, Sections & Allocations
           </h1>
-          <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-            Configure academic courses by semester (Sem 1–10), student sections, and faculty assignments
-          </p>
         </div>
 
         {/* Dynamic Contextual Action Button */}

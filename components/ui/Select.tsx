@@ -5,14 +5,38 @@ export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElemen
   error?: string;
   helperText?: string;
   options?: { value: string | number; label: string }[];
+  containerClassName?: string;
 }
 
+const WIDTH_REGEX = /(?:^|\s)(w-\S+|sm:w-\S+|md:w-\S+|lg:w-\S+|xl:w-\S+|min-w-\S+|max-w-\S+)/g;
+
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className = '', label, error, helperText, id, options, children, ...props }, ref) => {
+  (
+    {
+      className = '',
+      containerClassName,
+      label,
+      error,
+      helperText,
+      id,
+      options,
+      children,
+      ...props
+    },
+    ref
+  ) => {
     const selectId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
 
+    const widthMatches = className.match(WIDTH_REGEX) || [];
+    const extractedWidth = widthMatches.map((m) => m.trim()).join(' ');
+    const remainingClass = className.replace(WIDTH_REGEX, ' ').replace(/\s+/g, ' ').trim();
+
+    const finalContainerClass = containerClassName
+      ? `${containerClassName} space-y-1.5`
+      : `${extractedWidth || 'w-full'} space-y-1.5`;
+
     return (
-      <div className="w-full space-y-1.5">
+      <div className={finalContainerClass}>
         {label && (
           <label
             htmlFor={selectId}
@@ -21,7 +45,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             {label}
           </label>
         )}
-        <div className="relative">
+        <div className="relative w-full">
           <select
             id={selectId}
             ref={ref}
@@ -29,7 +53,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
               error
                 ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20'
                 : 'border-zinc-300 hover:border-zinc-400'
-            } ${className}`}
+            } ${remainingClass}`}
             {...props}
           >
             {options

@@ -12,7 +12,6 @@ import {
   CheckCircle2,
   XCircle,
   Layers,
-  Sparkles,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -252,9 +251,6 @@ export default function RoomsPage() {
             <DoorOpen className="w-6 h-6 text-red-700" />
             Rooms & Lecture Halls Directory
           </h1>
-          <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-            Maintain classrooms, computing labs, desk dimensions, and active scheduling availability
-          </p>
         </div>
 
         <Button onClick={handleOpenAdd} variant="primary" className="shrink-0 text-xs">

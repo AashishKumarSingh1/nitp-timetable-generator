@@ -15,10 +15,7 @@ import {
   X,
   Layers,
   GraduationCap,
-  Sparkles,
-  ShieldCheck,
-  Clock,
-  Compass,
+  ExternalLink,
   UserCheck,
   PanelLeftClose,
   PanelLeftOpen,
@@ -36,54 +33,11 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Departments', href: '/departments', icon: Building2 },
   { name: 'Rooms & Halls', href: '/rooms', icon: DoorOpen },
   { name: 'Faculty Directory', href: '/faculty', icon: Users },
-  { name: 'Student Directory', href: '/students', icon: GraduationCap },
+  // { name: 'Student Directory', href: '/students', icon: GraduationCap },
   { name: 'Sections & Mapping', href: '/sections', icon: UserCheck },
   { name: 'Class Timetable', href: '/schedule', icon: Calendar },
-  { name: 'Exam Seating Plan', href: '/seating', icon: Armchair },
+  // { name: 'Exam Seating Plan', href: '/seating', icon: Armchair },
 ];
-
-const ROUTE_INFO: Record<string, { title: string; subtitle: string; category: string }> = {
-  '/dashboard': {
-    title: 'Executive Dashboard',
-    subtitle: 'Institutional telemetry, quick stats & recent schedules',
-    category: 'Overview',
-  },
-  '/departments': {
-    title: 'Department Management',
-    subtitle: 'Configure engineering branches and academic divisions',
-    category: 'Master Data',
-  },
-  '/rooms': {
-    title: 'Rooms & Examination Halls',
-    subtitle: 'Room capacities, seating matrix layout & availability',
-    category: 'Infrastructure',
-  },
-  '/faculty': {
-    title: 'Faculty Directory & CSV Ingestion',
-    subtitle: 'Faculty appointments, teaching load & bulk import',
-    category: 'Academic Staff',
-  },
-  '/students': {
-    title: 'Student Directory & Rosters',
-    subtitle: 'Student registrations, department cohorts & seating rosters',
-    category: 'Students',
-  },
-  '/sections': {
-    title: 'Student Sections & Faculty Mapping',
-    subtitle: 'Student cohort strengths, course allocations & instructor assignments',
-    category: 'Curriculum & Allocations',
-  },
-  '/schedule': {
-    title: 'Class Timetable Generator',
-    subtitle: 'Automated clash-free schedule matrix with 0 collisions',
-    category: 'Scheduling Engine',
-  },
-  '/seating': {
-    title: 'Anti-Cheating Seating Planner',
-    subtitle: 'Multi-department staggered seating with 0 adjacent peers',
-    category: 'Examination Engine',
-  },
-};
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -165,16 +119,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  const currentRouteInfo = ROUTE_INFO[pathname] || {
-    title: 'NIT Patna Academic Portal',
-    subtitle: 'Scheduling and Examination Operations',
-    category: 'Operations',
-  };
-
   return (
     <div className="min-h-screen bg-[#fafafa] flex flex-col md:flex-row text-zinc-900 antialiased selection:bg-red-900 selection:text-white">
-      {/* Top Prestigious Crimson Accent Line */}
-      <div className="no-print fixed top-0 inset-x-0 h-1 bg-gradient-to-r from-red-800 via-rose-600 to-red-800 z-50 pointer-events-none" />
+      {/* Top Prestigious Crimson Accent Line (Main Content Area Only) */}
+      <div
+        className={`no-print fixed top-0 right-0 left-0 h-1 bg-gradient-to-r from-red-800 via-rose-600 to-red-800 z-30 pointer-events-none transition-[left] duration-300 ease-in-out ${
+          isCollapsed ? 'md:left-20' : 'md:left-68'
+        }`}
+      />
 
       {/* Mobile Backdrop */}
       {sidebarOpen && (
@@ -193,8 +145,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         {/* Brand Header */}
         <div
-          className={`p-4 border-b border-zinc-800/80 flex items-center shrink-0 ${
-            isCollapsed ? 'justify-center' : 'justify-between'
+          className={`p-3.5 border-b border-zinc-800/80 flex items-center shrink-0 ${
+            isCollapsed ? 'flex-col gap-2.5 justify-center' : 'justify-between'
           }`}
         >
           <Link
@@ -233,17 +185,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <X className="w-5 h-5" />
           </button>
 
-          {/* Desktop Collapse Button inside Sidebar Header */}
-          {!isCollapsed && (
-            <button
-              onClick={toggleCollapsed}
-              aria-label="Collapse sidebar"
-              title="Collapse sidebar (Ctrl+B)"
-              className="hidden md:flex text-zinc-400 hover:text-white p-1.5 rounded-lg hover:bg-zinc-800 transition-colors"
-            >
+          {/* Desktop Toggle Button inside Sidebar Header */}
+          <button
+            onClick={toggleCollapsed}
+            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={isCollapsed ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'}
+            className="hidden md:flex text-zinc-400 hover:text-white p-1.5 rounded-lg hover:bg-zinc-800 transition-colors"
+          >
+            {isCollapsed ? (
+              <PanelLeftOpen className="w-4 h-4" />
+            ) : (
               <PanelLeftClose className="w-4 h-4" />
-            </button>
-          )}
+            )}
+          </button>
         </div>
 
         {/* Navigation Items */}
@@ -316,7 +270,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* Institution Badge & User Profile */}
-        <div className="p-3 border-t border-zinc-800 bg-zinc-950/50 space-y-3 shrink-0">
+        <div className="p-3 pb-6 border-t border-zinc-800 bg-zinc-950/50 space-y-3 shrink-0">
           {!isCollapsed ? (
             <>
               <div className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800/80 flex items-center gap-2.5">
@@ -378,80 +332,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Main Content Viewport */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Dedicated Institutional Topbar (Sticky) */}
-        <header className="no-print sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-zinc-200 px-4 sm:px-6 lg:px-8 py-3 transition-colors shadow-2xs">
-          <div className="flex items-center justify-between gap-4 max-w-7xl mx-auto w-full">
-            {/* Left: Sidebar toggle trigger & Breadcrumbs */}
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => {
-                  if (typeof window !== 'undefined' && window.innerWidth < 768) {
-                    setSidebarOpen(!sidebarOpen);
-                  } else {
-                    toggleCollapsed();
-                  }
-                }}
-                aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                title={
-                  isCollapsed
-                    ? 'Expand sidebar (Ctrl+B)'
-                    : 'Collapse sidebar (Ctrl+B)'
-                }
-                className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors flex items-center justify-center cursor-pointer"
-              >
-                <Menu className="w-5 h-5 md:hidden" />
-                {isCollapsed ? (
-                  <PanelLeftOpen className="w-5 h-5 hidden md:block" />
-                ) : (
-                  <PanelLeftClose className="w-5 h-5 hidden md:block" />
-                )}
-              </button>
-
-              <div className="flex items-center gap-2.5">
-                <div className="w-2.5 h-2.5 rounded-full bg-red-700 animate-pulse hidden sm:block" />
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-500">
-                    <span>NIT Patna</span>
-                    <span>/</span>
-                    <span className="text-red-800 font-semibold">{currentRouteInfo.category}</span>
-                  </div>
-                  <h1 className="text-sm sm:text-base font-bold text-zinc-900 tracking-tight leading-tight">
-                    {currentRouteInfo.title}
-                  </h1>
-                </div>
-              </div>
-            </div>
-
-            {/* Right: Operational Status Badges & Quick User Indicator */}
-            <div className="flex items-center gap-2 sm:gap-3">
-              {/* Academic Session Pill */}
-              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-100 border border-zinc-200 text-[11px] font-semibold text-zinc-700">
-                <Clock className="w-3.5 h-3.5 text-zinc-500" />
-                <span>Session 2026-27</span>
-              </div>
-
-              {/* Conflict Status Pill */}
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-50 border border-red-200/80 text-[11px] font-semibold text-red-900">
-                <ShieldCheck className="w-3.5 h-3.5 text-red-700" />
-                <span className="hidden md:inline">Clash-Free Engine</span>
-                <span className="md:hidden">0 Clashes</span>
-              </div>
-
-              {/* User Avatar Capsule */}
-              <div className="flex items-center gap-2 pl-1 sm:pl-2 border-l border-zinc-200">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-red-800 to-rose-700 text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                  {user?.name ? user.name[0] : 'A'}
-                </div>
-                <div className="hidden xl:block text-left">
-                  <p className="text-xs font-semibold text-zinc-800 leading-none truncate max-w-[120px]">
-                    {user?.name || 'Administrator'}
-                  </p>
-                  <p className="text-[10px] text-zinc-500 font-mono mt-0.5">nitp.ac.in</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </header>
+        {/* Mobile Floating Menu Button (when sidebar is closed) */}
+        {!sidebarOpen && (
+          <button
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open sidebar"
+            className="no-print md:hidden fixed top-3.5 left-3.5 z-30 p-2.5 rounded-xl bg-zinc-900/90 text-white shadow-lg border border-zinc-700/60 backdrop-blur-md hover:bg-zinc-800 transition-colors"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        )}
 
         {/* Main Content Body */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
@@ -466,27 +356,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-red-700" />
                 <span className="font-bold text-zinc-800 tracking-tight">
-                  National Institute of Technology Patna
+                  National Institute of Technology Patna. All Rights Reserved.
                 </span>
               </div>
-              <span className="hidden sm:inline text-zinc-300">•</span>
-              <span className="text-zinc-500">
-                Academic Timetable & Anti-Cheating Seating System
-              </span>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-zinc-500 font-medium">Made by</span>
-              <span
-                title="Web Development Cell, NIT Patna"
-                className="inline-flex items-center px-2.5 py-1 rounded-md bg-zinc-50 border border-zinc-200 text-zinc-800 font-semibold text-xs shadow-2xs"
-              >
-                WDC
-              </span>
+            <div className="flex items-center gap-2 ">
+              <span className="text-zinc-500 font-medium">Developed by WDC NIT Patna</span>
             </div>
           </div>
         </footer>
       </div>
+
+      {/* Bottom Prestigious Crimson Accent Line (Main Content Area Only) */}
+      <div
+        className={`no-print fixed bottom-0 right-0 left-0 h-1 bg-gradient-to-r from-red-800 via-rose-600 to-red-800 z-30 pointer-events-none transition-[left] duration-300 ease-in-out ${
+          isCollapsed ? 'md:left-20' : 'md:left-68'
+        }`}
+      />
     </div>
   );
 }

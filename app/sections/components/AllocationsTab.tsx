@@ -5,7 +5,6 @@ import {
   UserCheck,
   Search,
   Trash2,
-  Sparkles,
   Users,
   ChevronDown,
   ChevronUp,
@@ -259,7 +258,7 @@ export function AllocationsTab({
         <CardHeader className="border-b border-zinc-100 dark:border-zinc-800 pb-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-red-700" />
+              <BookOpen className="w-4 h-4 text-red-700" />
               <div>
                 <CardTitle className="text-sm font-bold">
                   Interactive Teaching Assignment Studio
@@ -594,16 +593,16 @@ export function AllocationsTab({
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="relative flex-1 w-full max-w-md">
-          <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-3" />
+          <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-2.5 z-10 pointer-events-none" />
           <Input
             placeholder="Search by instructor, course code, section..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-10 text-xs"
+            className="pl-10 text-xs py-1.5"
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full sm:w-auto">
           <Select
             value={deptFilter}
             onChange={(e) => setDeptFilter(e.target.value)}
