@@ -44,3 +44,5 @@ package-lock.json
 # sqlite ephemeral files
 *.db-shm
 *.db-wal
+
+AGENTS.md

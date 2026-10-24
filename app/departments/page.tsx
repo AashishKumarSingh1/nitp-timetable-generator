@@ -139,9 +139,6 @@ export default function DepartmentsPage() {
             <Building2 className="w-6 h-6 text-red-700" />
             Academic Departments Directory
           </h1>
-          <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-            Configure academic branches, view faculty allocations, managed facilities, and curriculum courses
-          </p>
         </div>
 
         <Button onClick={handleOpenAdd} variant="primary" className="shrink-0 text-xs">

@@ -4,7 +4,7 @@ import React, { useState, Suspense } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowRight, Sparkles, ShieldCheck } from 'lucide-react';
+import { ArrowRight, KeyRound, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
@@ -121,7 +121,7 @@ function LoginForm() {
             onClick={fillDemoAdmin}
             className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-400 hover:text-red-300 transition-colors p-1.5 rounded-lg hover:bg-red-950/30"
           >
-            <Sparkles className="w-3.5 h-3.5" />
+            <KeyRound className="w-3.5 h-3.5" />
             Auto-fill Default Administrator Credentials
           </button>
         </div>

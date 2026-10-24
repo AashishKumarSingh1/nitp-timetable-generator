@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Calendar,
-  Sparkles,
+  Play,
   Printer,
   Pin,
   Trash2,
@@ -24,12 +24,10 @@ import {
   Settings2,
   Download,
   Eye,
-  Sliders,
   Check,
   ExternalLink,
   FlaskConical,
   Utensils,
-  ShieldCheck,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -57,6 +55,7 @@ export interface ClassSession {
   room_name: string;
   room_type: string;
   department_code: string;
+  mergedIds?: string[];
 }
 
 export interface FilterOption {
@@ -234,6 +233,99 @@ export function getCourseTheme(courseCode: string, isLab: boolean): CourseTheme 
   return COURSE_COLOR_PALETTES[index];
 }
 
+export function isLabSession(session: {
+  room_type?: string;
+  course_code?: string;
+  course_name?: string;
+}): boolean {
+  const rt = session.room_type?.toUpperCase() || '';
+  if (rt === 'LAB' || rt === 'COMPUTER_LAB') return true;
+  const code = session.course_code?.toUpperCase() || '';
+  if (code.endsWith('L') || code.includes('LAB')) return true;
+  const name = session.course_name?.toLowerCase() || '';
+  if (name.includes('lab') || name.includes('laboratory') || name.includes('practical')) return true;
+  return false;
+}
+
+export function mergeAdjacentSessions(
+  rawSessions: ClassSession[],
+  lunchAfterPeriod = -1
+): ClassSession[] {
+  if (!rawSessions || rawSessions.length === 0) return [];
+
+  // Group by day + section_name to guarantee proper grouping
+  const groups = new Map<string, ClassSession[]>();
+  for (const s of rawSessions) {
+    const key = `${s.day}::${s.section_name}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push({ ...s });
+  }
+
+  const result: ClassSession[] = [];
+
+  for (const group of groups.values()) {
+    // Sort chronologically by period_index
+    group.sort((a, b) => a.period_index - b.period_index);
+
+    const mergedGroup: ClassSession[] = [];
+
+    for (const session of group) {
+      if (mergedGroup.length === 0) {
+        mergedGroup.push({
+          ...session,
+          mergedIds: session.mergedIds ? [...session.mergedIds] : [session.id],
+        });
+        continue;
+      }
+
+      const prev = mergedGroup[mergedGroup.length - 1];
+
+      const isSameCourse =
+        (prev.course_id && session.course_id && prev.course_id === session.course_id) ||
+        (prev.course_code && session.course_code && prev.course_code === session.course_code);
+      const isSameFaculty =
+        prev.faculty_id === session.faculty_id ||
+        (prev.faculty_name && session.faculty_name && prev.faculty_name === session.faculty_name);
+      const isSameRoom =
+        prev.room_id === session.room_id ||
+        (prev.room_code && session.room_code && prev.room_code === session.room_code);
+      const isContiguous = prev.period_index + prev.span === session.period_index;
+
+      // Cannot cross lunch recess
+      let crossesLunch = false;
+      if (lunchAfterPeriod > 0) {
+        const prevEndsAt = prev.period_index + prev.span - 1;
+        if (prevEndsAt <= lunchAfterPeriod && session.period_index > lunchAfterPeriod) {
+          crossesLunch = true;
+        }
+      }
+
+      if (isSameCourse && isSameFaculty && isSameRoom && isContiguous && !crossesLunch) {
+        // Merge session into prev
+        prev.span += session.span;
+        prev.is_pinned = Boolean(prev.is_pinned) || Boolean(session.is_pinned);
+        if (!prev.mergedIds) {
+          prev.mergedIds = [prev.id];
+        }
+        if (session.mergedIds && session.mergedIds.length > 0) {
+          prev.mergedIds.push(...session.mergedIds);
+        } else {
+          prev.mergedIds.push(session.id);
+        }
+      } else {
+        mergedGroup.push({
+          ...session,
+          mergedIds: session.mergedIds ? [...session.mergedIds] : [session.id],
+        });
+      }
+    }
+
+    result.push(...mergedGroup);
+  }
+
+  return result;
+}
+
 export default function SchedulePage() {
   const { toast } = useToast();
   const [sessions, setSessions] = useState<ClassSession[]>([]);
@@ -263,8 +355,7 @@ export default function SchedulePage() {
   const [tempTimingConfig, setTempTimingConfig] = useState<TimetableTimingConfig>(DEFAULT_TIMING_CONFIG);
   const [isTimingModalOpen, setIsTimingModalOpen] = useState(false);
 
-  // Solver Generator Modal
-  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  // Solver Generation State
   const [generating, setGenerating] = useState(false);
   const [solverResult, setSolverResult] = useState<any>(null);
 
@@ -450,10 +541,32 @@ export default function SchedulePage() {
 
       setSolverResult(data.result);
       toast.success(
-        `Clash-Free Timetable Generated! ${data.result.placedCount} sessions placed (${data.result.placementRate}%)`
+        `Timetable Generated! ${data.result.placedCount} sessions placed (${data.result.placementRate}%)`
       );
-      fetchSchedule();
-      fetchAllSessionsForExport();
+      await fetchSchedule();
+      await fetchAllSessionsForExport();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleClearSchedule = async () => {
+    if (
+      !confirm(
+        'Are you sure you want to clear the timetable? All scheduled class sessions will be removed until you tap "Generate Time table" again.'
+      )
+    ) {
+      return;
+    }
+    try {
+      setGenerating(true);
+      const res = await fetch('/api/schedule?all=true', { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to clear timetable');
+      toast.success('Timetable cleared. Tap "Generate Time table" to schedule classes.');
+      await fetchSchedule();
+      await fetchAllSessionsForExport();
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -463,19 +576,24 @@ export default function SchedulePage() {
 
   const handleTogglePin = async (session: ClassSession) => {
     const nextState = !Boolean(session.is_pinned);
+    const idsToUpdate = session.mergedIds && session.mergedIds.length > 0 ? session.mergedIds : [session.id];
     try {
-      const res = await fetch(`/api/schedule/${session.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isPinned: nextState }),
-      });
-      if (!res.ok) throw new Error('Failed to update session pin');
+      await Promise.all(
+        idsToUpdate.map(async (id) => {
+          const res = await fetch(`/api/schedule/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isPinned: nextState }),
+          });
+          if (!res.ok) throw new Error('Failed to update session pin');
+        })
+      );
 
       setSessions((prev) =>
-        prev.map((s) => (s.id === session.id ? { ...s, is_pinned: nextState } : s))
+        prev.map((s) => (idsToUpdate.includes(s.id) ? { ...s, is_pinned: nextState } : s))
       );
       setAllSessions((prev) =>
-        prev.map((s) => (s.id === session.id ? { ...s, is_pinned: nextState } : s))
+        prev.map((s) => (idsToUpdate.includes(s.id) ? { ...s, is_pinned: nextState } : s))
       );
       toast.info(nextState ? 'Session pinned (protected from re-solver)' : 'Session unpinned');
     } catch (err: any) {
@@ -484,12 +602,21 @@ export default function SchedulePage() {
   };
 
   const handleDeleteSession = async (session: ClassSession) => {
-    if (!confirm(`Delete ${session.course_code} on ${session.day} (Period ${session.period_index})?`)) return;
+    const periodLabel = session.span > 1
+      ? `Periods ${session.period_index}-${session.period_index + session.span - 1}`
+      : `Period ${session.period_index}`;
+    if (!confirm(`Delete ${session.course_code} on ${session.day} (${periodLabel})?`)) return;
+
+    const idsToDelete = session.mergedIds && session.mergedIds.length > 0 ? session.mergedIds : [session.id];
     try {
-      const res = await fetch(`/api/schedule/${session.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete session');
+      await Promise.all(
+        idsToDelete.map(async (id) => {
+          const res = await fetch(`/api/schedule/${id}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete session');
+        })
+      );
       toast.success('Class session deleted');
-      if (isEditModalOpen && editingSession?.id === session.id) {
+      if (isEditModalOpen && (editingSession?.id === session.id || idsToDelete.includes(editingSession?.id || ''))) {
         setIsEditModalOpen(false);
       }
       fetchSchedule();
@@ -625,6 +752,12 @@ export default function SchedulePage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
+        if (editingSession.mergedIds && editingSession.mergedIds.length > 1) {
+          const extraIds = editingSession.mergedIds.filter((id) => id !== editingSession.id);
+          await Promise.all(
+            extraIds.map((id) => fetch(`/api/schedule/${id}`, { method: 'DELETE' }))
+          );
+        }
       } else {
         res = await fetch('/api/schedule', {
           method: 'POST',
@@ -658,10 +791,25 @@ export default function SchedulePage() {
 
   const displayDays = workingDays === 6 ? DAYS : DAYS.slice(0, 5);
 
+  // Divide periods around lunch break for interactive screen view
+  const lunchAfter = timingConfig.hasLunchBreak ? timingConfig.lunchAfterPeriod : -1;
+  const morningPeriods = lunchAfter > 0 ? timingConfig.periods.slice(0, lunchAfter) : timingConfig.periods;
+  const afternoonPeriods = lunchAfter > 0 ? timingConfig.periods.slice(lunchAfter) : [];
+
+  // Merged sessions for display, export, and matrix (merges adjacent 1h slots of same class)
+  const displaySessions = useMemo(
+    () => mergeAdjacentSessions(sessions, lunchAfter),
+    [sessions, lunchAfter]
+  );
+  const displayAllSessions = useMemo(
+    () => mergeAdjacentSessions(allSessions, lunchAfter),
+    [allSessions, lunchAfter]
+  );
+
   const sessionMatrix = new Map<string, ClassSession>();
   const spannedCoverage = new Set<string>();
 
-  for (const s of sessions) {
+  for (const s of displaySessions) {
     sessionMatrix.set(`${s.day}:${s.period_index}`, s);
     if (s.span > 1) {
       for (let p = 1; p < s.span; p++) {
@@ -675,7 +823,7 @@ export default function SchedulePage() {
   const matchedSessionIds = useMemo(() => {
     if (!normalizedQuery) return new Set<string>();
     const matches = new Set<string>();
-    for (const s of sessions) {
+    for (const s of displaySessions) {
       if (
         s.faculty_name.toLowerCase().includes(normalizedQuery) ||
         s.faculty_code.toLowerCase().includes(normalizedQuery) ||
@@ -687,88 +835,22 @@ export default function SchedulePage() {
         s.department_code?.toLowerCase().includes(normalizedQuery)
       ) {
         matches.add(s.id);
+        if (s.mergedIds) {
+          s.mergedIds.forEach((id) => matches.add(id));
+        }
       }
     }
     return matches;
-  }, [sessions, normalizedQuery]);
+  }, [displaySessions, normalizedQuery]);
 
   const matchCount = matchedSessionIds.size;
 
-  // Divide periods around lunch break for interactive screen view
-  const lunchAfter = timingConfig.hasLunchBreak ? timingConfig.lunchAfterPeriod : -1;
-  const morningPeriods = lunchAfter > 0 ? timingConfig.periods.slice(0, lunchAfter) : timingConfig.periods;
-  const afternoonPeriods = lunchAfter > 0 ? timingConfig.periods.slice(lunchAfter) : [];
 
-  // Target summary metrics for active view
-  const targetMetrics = useMemo(() => {
-    const totalSessions = sessions.length;
-    const totalPeriods = sessions.reduce((acc, s) => acc + (s.span || 1), 0);
-    const theoryPeriods = sessions
-      .filter((s) => s.span === 1 && s.room_type !== 'LAB')
-      .reduce((acc, s) => acc + (s.span || 1), 0);
-    const labPeriods = sessions
-      .filter((s) => s.span > 1 || s.room_type === 'LAB')
-      .reduce((acc, s) => acc + (s.span || 1), 0);
-
-    // Unique courses
-    const courseMap = new Map<string, { code: string; name: string; faculty: string; isLab: boolean }>();
-    for (const s of sessions) {
-      if (!courseMap.has(s.course_code)) {
-        courseMap.set(s.course_code, {
-          code: s.course_code,
-          name: s.course_name,
-          faculty: s.faculty_name,
-          isLab: s.span > 1 || s.room_type === 'LAB',
-        });
-      }
-    }
-    const uniqueCourses = Array.from(courseMap.values());
-
-    // Home classroom calculation (room used most frequently for theory)
-    const roomCounts: Record<string, number> = {};
-    for (const s of sessions) {
-      if (s.span === 1 && s.room_type !== 'LAB') {
-        roomCounts[s.room_code] = (roomCounts[s.room_code] || 0) + 1;
-      }
-    }
-    const homeClassroom = Object.entries(roomCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'CR-TBD';
-
-    let title = '';
-    let subtitle = '';
-    let badgeLabel = '';
-    if (filterMode === 'SECTION') {
-      title = selectedSection;
-      subtitle = 'Student Cohort Timetable';
-      badgeLabel = `Home Class: ${homeClassroom}`;
-    } else if (filterMode === 'FACULTY') {
-      const fac = faculty.find((f) => f.id === selectedFaculty);
-      title = fac ? `${fac.name} (${fac.code})` : 'Faculty Schedule';
-      subtitle = 'Faculty Teaching Allocation';
-      badgeLabel = fac?.type ? `Role: ${fac.type}` : 'Faculty Member';
-    } else {
-      const rm = rooms.find((r) => r.id === selectedRoom);
-      title = rm ? `${rm.code} - ${rm.name}` : 'Classroom Schedule';
-      subtitle = rm ? `Capacity: ${rm.capacity || 60} • Type: ${rm.type}` : 'Room Timetable';
-      badgeLabel = rm?.type || 'Classroom';
-    }
-
-    return {
-      title,
-      subtitle,
-      badgeLabel,
-      totalSessions,
-      totalPeriods,
-      theoryPeriods,
-      labPeriods,
-      uniqueCourses,
-      homeClassroom,
-    };
-  }, [sessions, filterMode, selectedSection, selectedFaculty, selectedRoom, faculty, rooms]);
 
   // Group all sessions by Section, by Faculty, and by Room for the export booklet
   const sessionsBySection = useMemo(() => {
     const map = new Map<string, ClassSession[]>();
-    for (const s of allSessions) {
+    for (const s of displayAllSessions) {
       if (!map.has(s.section_name)) map.set(s.section_name, []);
       map.get(s.section_name)!.push(s);
     }
@@ -776,11 +858,11 @@ export default function SchedulePage() {
       if (!map.has(sec)) map.set(sec, []);
     }
     return map;
-  }, [allSessions, sections]);
+  }, [displayAllSessions, sections]);
 
   const sessionsByFaculty = useMemo(() => {
     const map = new Map<string, ClassSession[]>();
-    for (const s of allSessions) {
+    for (const s of displayAllSessions) {
       if (!map.has(s.faculty_id)) map.set(s.faculty_id, []);
       map.get(s.faculty_id)!.push(s);
     }
@@ -788,11 +870,11 @@ export default function SchedulePage() {
       if (!map.has(f.id)) map.set(f.id, []);
     }
     return map;
-  }, [allSessions, faculty]);
+  }, [displayAllSessions, faculty]);
 
   const sessionsByRoom = useMemo(() => {
     const map = new Map<string, ClassSession[]>();
-    for (const s of allSessions) {
+    for (const s of displayAllSessions) {
       if (!map.has(s.room_id)) map.set(s.room_id, []);
       map.get(s.room_id)!.push(s);
     }
@@ -800,7 +882,7 @@ export default function SchedulePage() {
       if (!map.has(r.id)) map.set(r.id, []);
     }
     return map;
-  }, [allSessions, rooms]);
+  }, [displayAllSessions, rooms]);
 
   // Determine which sheets to render in print / export view
   const exportSheets = useMemo(() => {
@@ -1573,92 +1655,83 @@ export default function SchedulePage() {
   return (
     <div className="space-y-6">
       {/* Top Header - No-print in print layout */}
-      <div className="no-print flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 flex items-center gap-2.5">
+      <div className="no-print flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="shrink-0">
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 flex items-center gap-2.5 whitespace-nowrap">
             <Calendar className="w-6 h-6 text-red-700" />
-            Classroom Timetable & Academic Scheduler
+            Classroom Timetable
           </h1>
-          <p className="text-xs sm:text-sm text-zinc-500 mt-1">
-            Manual class assignment, period timing flexibility, clash-free solver & NITP/aSc export
-          </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap">
           {/* Timing Flexibility & Lunch Settings Button */}
           <Button
+            size="sm"
             onClick={() => {
               setTempTimingConfig({ ...timingConfig });
               setIsTimingModalOpen(true);
             }}
             variant="outline"
-            className="text-xs border-zinc-300 hover:border-red-600 hover:text-red-700"
+            className="text-xs border-zinc-300 hover:border-red-600 hover:text-red-700 whitespace-nowrap"
           >
-            <Clock className="w-4 h-4 mr-1.5 text-zinc-600" />
+            <Clock className="w-3.5 h-3.5 text-zinc-600" />
             Timing & Lunch Settings
           </Button>
 
           {/* Official PDF / aSc Timetable Export Center */}
           <Button
+            size="sm"
             onClick={handleOpenExportModal}
             variant="secondary"
-            className="text-xs font-semibold border border-zinc-200"
+            className="text-xs font-semibold border border-zinc-200 whitespace-nowrap"
           >
-            <Printer className="w-4 h-4 mr-1.5 text-red-700" />
-            Export Official Timetable
+            <Printer className="w-3.5 h-3.5 text-red-700" />
+            Export Timetable
           </Button>
 
           {/* Manual Assignment Modal Button */}
-          <Button onClick={() => handleOpenCreateModal()} variant="secondary" className="text-xs">
-            <Plus className="w-4 h-4 mr-1.5 text-zinc-700" />
-            Manual Assign Class
+          <Button
+            size="sm"
+            onClick={() => handleOpenCreateModal()}
+            variant="secondary"
+            className="text-xs whitespace-nowrap"
+          >
+            <Plus className="w-3.5 h-3.5 text-zinc-700" />
+            Manual Assign
           </Button>
+
+          {/* Clear Timetable (Only shown when schedule has active sessions) */}
+          {allSessions.length > 0 && (
+            <Button
+              size="sm"
+              onClick={handleClearSchedule}
+              disabled={generating}
+              variant="outline"
+              className="text-xs text-zinc-600 hover:text-red-700 hover:border-red-300 whitespace-nowrap"
+              title="Clear generated timetable sessions"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-zinc-500" />
+              Clear Timetable
+            </Button>
+          )}
 
           {/* Solver Generator Button */}
-          <Button onClick={() => setIsGenerateModalOpen(true)} variant="primary" className="text-xs">
-            <Sparkles className="w-4 h-4 mr-1.5 text-red-200" />
-            Generate Clash-Free
+          <Button
+            size="sm"
+            onClick={handleGenerate}
+            isLoading={generating}
+            disabled={generating}
+            variant="primary"
+            className="text-xs font-bold whitespace-nowrap"
+            title="Generate clash-free timetable"
+          >
+            <Play className="w-3.5 h-3.5 text-red-200 fill-current" />
+            {generating ? 'Generating Timetable...' : 'Generate Timetable'}
           </Button>
         </div>
       </div>
 
-      {/* Active Timing Notice Bar */}
-      <div className="no-print flex items-center justify-between px-3.5 py-2 rounded-xl bg-zinc-100 border border-zinc-200 text-xs text-zinc-700">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-bold text-zinc-900 flex items-center gap-1.5">
-            <Sliders className="w-3.5 h-3.5 text-red-700" />
-            Active Schedule:
-          </span>
-          <span className="font-medium bg-white px-2 py-0.5 rounded-md border border-zinc-200 text-zinc-800 font-mono text-[11px]">
-            {timingConfig.periods.length} Periods ({timingConfig.periods[0]?.time.split('-')[0].trim()} -{' '}
-            {timingConfig.periods[timingConfig.periods.length - 1]?.time.split('-')[1]?.trim()})
-          </span>
-          {timingConfig.hasLunchBreak ? (
-            <span className="font-medium bg-red-50 text-red-900 px-2 py-0.5 rounded-md border border-red-200 text-[11px]">
-              Lunch Recess: After Period {timingConfig.lunchAfterPeriod} ({timingConfig.lunchTime})
-            </span>
-          ) : (
-            <span className="font-medium bg-zinc-200 text-zinc-700 px-2 py-0.5 rounded-md text-[11px]">
-              Continuous Slots (No Lunch Break)
-            </span>
-          )}
-          {allSessions.length > 0 && (
-            <span className="font-medium bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded-md border border-emerald-200 text-[11px] flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-              {allSessions.length} Sessions Active • 100% Clash-Free
-            </span>
-          )}
-        </div>
-        <button
-          onClick={() => {
-            setTempTimingConfig({ ...timingConfig });
-            setIsTimingModalOpen(true);
-          }}
-          className="text-red-700 font-semibold hover:underline text-[11px] flex items-center gap-1 shrink-0 ml-2"
-        >
-          Change Timing & Lunch <Clock className="w-3 h-3" />
-        </button>
-      </div>
+
 
       {/* Search Bar & Scope Filter Controls Bar */}
       <Card className="no-print">
@@ -1791,53 +1864,7 @@ export default function SchedulePage() {
         </CardContent>
       </Card>
 
-      {/* Target Summary Banner & Course Color Legend */}
-      <div className="no-print bg-white rounded-2xl border border-zinc-200/90 shadow-xs p-4 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <h2 className="text-base font-bold text-zinc-900 tracking-tight">
-              {targetMetrics.title}
-            </h2>
-            <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-800 border border-slate-200 text-xs font-semibold">
-              {targetMetrics.badgeLabel}
-            </span>
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-medium">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              100% Student Compliant (≤4h/session • ≤7h/day)
-            </span>
-          </div>
-          <p className="text-xs text-zinc-500">
-            {targetMetrics.subtitle} • {targetMetrics.totalSessions} sessions ({targetMetrics.totalPeriods} periods: {targetMetrics.theoryPeriods}h theory + {targetMetrics.labPeriods}h lab)
-          </p>
-        </div>
 
-        {/* Course Color Pills Legend */}
-        {targetMetrics.uniqueCourses.length > 0 && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mr-1">
-              Courses:
-            </span>
-            {targetMetrics.uniqueCourses.map((c) => {
-              const theme = getCourseTheme(c.code, c.isLab);
-              return (
-                <div
-                  key={c.code}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-transform hover:scale-105 ${theme.bg} ${theme.text} ${theme.border}`}
-                  title={`${c.code}: ${c.name} • Faculty: ${c.faculty}`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${theme.dotColor}`} />
-                  <span className="font-mono">{c.code}</span>
-                  {c.isLab && (
-                    <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-teal-200/70 text-teal-900 font-bold">
-                      Lab
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
 
       {/* Visual Timetable Grid (Screen Interactive Layout) */}
       <Card className="no-print overflow-hidden shadow-xs border border-zinc-200/80 rounded-2xl bg-white">
@@ -2663,125 +2690,6 @@ export default function SchedulePage() {
           </div>
         </form>
       </Modal>
-
-      {/* ========================================================================= */}
-      {/* MODAL 4: Automated Solver Generator Modal */}
-      {/* ========================================================================= */}
-      <Modal
-        isOpen={isGenerateModalOpen}
-        onClose={() => setIsGenerateModalOpen(false)}
-        title="Automated Clash-Free Scheduler Solver"
-        description="Run deterministic heuristic solver to schedule lectures, sections, and lab blocks"
-        maxWidth="lg"
-      >
-        <div className="space-y-4">
-          <div className="p-4 rounded-2xl bg-red-50/70 border border-red-200 space-y-2">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-red-900 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-red-700" />
-              Deterministic Invariants Enforced:
-            </h4>
-            <ul className="text-xs text-red-900 space-y-1 list-disc pl-4">
-              <li>Zero room double-booking at any period</li>
-              <li>Zero faculty teaching overlap across rooms</li>
-              <li>Zero student cohort double-booking across courses</li>
-              <li>
-                <strong>Zero adjacent classes in diff sections for faculty</strong> (mandatory buffer or lunch)
-              </li>
-              <li>
-                <strong>Dedicated home classroom affinity</strong>: same classroom preserved for each student cohort
-              </li>
-              <li>
-                <strong>Student Session Protection</strong>: max 4 continuous class/lab hours in 1 session (before or after lunch)
-              </li>
-              <li>
-                <strong>Student Daily Caps</strong>: max 5 hours of theory teaching & max 7 hours total classes/labs per day
-              </li>
-              <li>
-                <strong>Strict Lunch Recess</strong>: Zero classes scheduled during lunch break (After Period {timingConfig.lunchAfterPeriod})
-              </li>
-              <li>Faculty daily and weekly period caps strictly respected</li>
-            </ul>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <Select
-              label="Working Days Schedule"
-              value={workingDays}
-              onChange={(e) => setWorkingDays(Number(e.target.value) as 5 | 6)}
-            >
-              <option value={5}>5 Days (Mon - Fri)</option>
-              <option value={6}>6 Days (Mon - Sat)</option>
-            </Select>
-
-            <div className="flex flex-col justify-end">
-              <p className="text-xs text-zinc-500 mb-2">Protected Sessions:</p>
-              <Badge variant="crimson" size="md">
-                Pinned items are preserved
-              </Badge>
-            </div>
-          </div>
-
-          {solverResult && (
-            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs space-y-2">
-              <div className="font-bold flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                Solver Execution Result:
-              </div>
-              <p>
-                Successfully placed <strong>{solverResult.placedCount}</strong> of{' '}
-                <strong>{solverResult.totalDemanded}</strong> demands (
-                <strong>{solverResult.placementRate}%</strong> placement rate) in{' '}
-                {solverResult.durationMs}ms.
-              </p>
-              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-emerald-200/60 text-[11px]">
-                <div className="flex items-center gap-1 text-emerald-800">
-                  <span className="font-semibold">Isolated 1-Hr Gaps:</span>{' '}
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 font-bold text-emerald-900">
-                    {solverResult.isolatedGapsCount ?? 0}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 text-emerald-800">
-                  <span className="font-semibold">Single-Class Days:</span>{' '}
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 font-bold text-emerald-900">
-                    {solverResult.singleHourDaysCount ?? 0}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 text-emerald-800">
-                  <span className="font-semibold">Continuous Blocks (2-4h):</span>{' '}
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 font-bold text-emerald-900">
-                    {solverResult.contiguousBlocksCount ?? 0}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 text-emerald-800">
-                  <span className="font-semibold">Full Relief / Off Days:</span>{' '}
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 font-bold text-emerald-900">
-                    {solverResult.reliefDaysCount ?? 0}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-zinc-100">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsGenerateModalOpen(false)}
-            >
-              Close
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              isLoading={generating}
-              onClick={handleGenerate}
-            >
-              <Sparkles className="w-4 h-4 mr-1.5" />
-              Run Solver Algorithm
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }
@@ -3006,7 +2914,7 @@ function SessionGridCard({
   onTogglePin: () => void;
   onDelete: () => void;
 }) {
-  const isLab = session.span > 1;
+  const isLab = isLabSession(session);
   const isPinned = Boolean(session.is_pinned);
   const theme = getCourseTheme(session.course_code, isLab);
 
@@ -3028,11 +2936,18 @@ function SessionGridCard({
             <span className={`font-mono font-bold text-xs tracking-tight ${theme.codeColor}`}>
               {session.course_code}
             </span>
-            {isLab && (
-              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-teal-200/80 border border-teal-300 text-[9px] font-bold text-teal-950 uppercase tracking-tight">
-                <FlaskConical className="w-2.5 h-2.5 text-teal-800" />
-                {session.span}h Lab
-              </span>
+            {session.span > 1 && (
+              isLab ? (
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-teal-200/80 border border-teal-300 text-[9px] font-bold text-teal-950 uppercase tracking-tight">
+                  <FlaskConical className="w-2.5 h-2.5 text-teal-800" />
+                  {session.span}h Lab
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-sky-200/80 border border-sky-300 text-[9px] font-bold text-sky-950 uppercase tracking-tight">
+                  <Clock className="w-2.5 h-2.5 text-sky-800" />
+                  {session.span}h Class
+                </span>
+              )
             )}
             {isPinned && (
               <span className="p-0.5 text-amber-600" title="Pinned session (locked)">

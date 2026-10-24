@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Armchair,
-  Sparkles,
+  Play,
   Printer,
   ShieldCheck,
   CheckCircle2,
@@ -285,9 +285,6 @@ export default function SeatingPage() {
             <Armchair className="w-6 h-6 text-red-700" />
             Automated Exam Seating Arrangement Planner
           </h1>
-          <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-            Anti-cheating alternating seating engine with printable A4 examination door notices
-          </p>
         </div>
 
         <div className="flex items-center gap-2.5">
@@ -374,7 +371,7 @@ export default function SeatingPage() {
               isLoading={generating}
               className="w-full sm:w-auto text-xs"
             >
-              <Sparkles className="w-4 h-4 mr-1.5" />
+              <Play className="w-4 h-4 mr-1.5 fill-current" />
               Generate Anti-Cheating Seating
             </Button>
           </div>

@@ -14,7 +14,6 @@ import {
   FileSpreadsheet,
   Download,
   Clock,
-  Sparkles,
   GraduationCap,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
@@ -331,9 +330,6 @@ export default function FacultyPage() {
             <Users className="w-6 h-6 text-red-700" />
             Faculty Roster & Teaching Caps
           </h1>
-          <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-            Maintain professors, maximum daily/weekly period restrictions, and bulk CSV onboarding
-          </p>
         </div>
 
         <div className="flex items-center gap-2.5">
