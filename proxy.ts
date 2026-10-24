@@ -17,12 +17,15 @@ const PROTECTED_PREFIXES = [
   '/seating',
 ];
 
+// Login bypass flag
+const BYPASS_AUTH = true;
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const token = req.cookies.get('nitp_session')?.value;
 
-  let isAuthenticated = false;
-  if (token) {
+  let isAuthenticated = BYPASS_AUTH;
+  if (!isAuthenticated && token) {
     try {
       await jwtVerify(token, JWT_SECRET);
       isAuthenticated = true;

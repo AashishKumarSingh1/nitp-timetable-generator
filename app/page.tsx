@@ -2,9 +2,8 @@ import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Calendar, ArrowRight, ShieldCheck, Users, DoorOpen, Armchair } from 'lucide-react';
+import { Calendar, ArrowRight, ShieldCheck, Users, Armchair } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,13 +40,9 @@ export default async function HomePage() {
           </div>
           <div className="flex items-center gap-3">
             <Link href="/login">
-              <Button variant="outline" className="border-zinc-700 bg-zinc-900/80 text-zinc-200 hover:bg-zinc-800 text-xs">
-                Staff Sign In
-              </Button>
-            </Link>
-            <Link href="/signup">
-              <Button variant="primary" className="text-xs">
-                Register Account
+              <Button variant="primary" className="text-xs font-bold gap-2 bg-red-700 hover:bg-red-800 shadow-md shadow-red-950/40">
+                Sign in with Google
+                <ArrowRight className="w-3.5 h-3.5" />
               </Button>
             </Link>
           </div>
@@ -74,7 +69,7 @@ export default async function HomePage() {
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
             <Link href="/login">
               <Button size="lg" className="bg-red-700 hover:bg-red-800 active:bg-red-900 text-white font-bold px-8 py-3.5 shadow-xl shadow-red-900/30 border border-red-600/50">
-                Access Scheduling Console
+                Sign in with Google Workspace
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </Link>

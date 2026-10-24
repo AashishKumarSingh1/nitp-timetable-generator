@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
@@ -15,7 +15,6 @@ import {
   X,
   Layers,
   GraduationCap,
-  ExternalLink,
   UserCheck,
   PanelLeftClose,
   PanelLeftOpen,
@@ -26,6 +25,8 @@ interface NavItem {
   href: string;
   icon: React.ElementType;
   badge?: string;
+  disabled?: boolean;
+  comingSoon?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -33,35 +34,38 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Departments', href: '/departments', icon: Building2 },
   { name: 'Rooms & Halls', href: '/rooms', icon: DoorOpen },
   { name: 'Faculty Directory', href: '/faculty', icon: Users },
-  // { name: 'Student Directory', href: '/students', icon: GraduationCap },
+  { name: 'Student Directory', href: '/students', icon: GraduationCap, disabled: true, comingSoon: true },
   { name: 'Sections & Mapping', href: '/sections', icon: UserCheck },
   { name: 'Class Timetable', href: '/schedule', icon: Calendar },
-  // { name: 'Exam Seating Plan', href: '/seating', icon: Armchair },
+  { name: 'Exam Seating Plan', href: '/seating', icon: Armchair, disabled: true, comingSoon: true },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [user, setUser] = useState<{ name: string; email: string; role: string } | null>(null);
-
-  // Restore sidebar state from localStorage
-  useEffect(() => {
+  // Lazy initializer reads localStorage once on mount — avoids setState-in-effect
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
     try {
-      const saved = localStorage.getItem('nitp_sidebar_collapsed');
-      if (saved !== null) {
-        setIsCollapsed(saved === 'true');
-      }
-    } catch (e) {}
-  }, []);
+      return localStorage.getItem('nitp_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [user, setUser] = useState<{ name: string; email: string; role: string } | null>(null);
+  // Prevent duplicate user fetches across re-renders
+  const userFetchedRef = useRef(false);
+
 
   const toggleCollapsed = () => {
     setIsCollapsed((prev) => {
       const next = !prev;
       try {
         localStorage.setItem('nitp_sidebar_collapsed', String(next));
-      } catch (e) {}
+      } catch (e) {
+        if (process.env.NODE_ENV === 'development') console.warn('[AppShell] localStorage write failed:', e);
+      }
       return next;
     });
   };
@@ -93,7 +97,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Fetch user once — guard with ref to avoid repeat calls on route changes
   useEffect(() => {
+    if (userFetchedRef.current) return;
+    userFetchedRef.current = true;
     fetch('/api/auth/me')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -118,6 +125,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (pathname === '/login' || pathname === '/signup') {
     return <>{children}</>;
   }
+
 
   return (
     <div className="min-h-screen bg-[#fafafa] flex flex-col md:flex-row text-zinc-900 antialiased selection:bg-red-900 selection:text-white">
@@ -213,8 +221,44 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
 
           {NAV_ITEMS.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const isActive = !item.disabled && (pathname === item.href || pathname.startsWith(`${item.href}/`));
             const Icon = item.icon;
+
+            // Disabled / Coming Soon items — render as a non-clickable div
+            if (item.disabled) {
+              return (
+                <div
+                  key={item.href}
+                  title={item.comingSoon ? `${item.name} — Coming Soon` : item.name}
+                  className={`group relative flex items-center rounded-xl text-xs font-semibold tracking-tight cursor-not-allowed opacity-40 ${
+                    isCollapsed
+                      ? 'px-0 py-2.5 justify-center'
+                      : 'px-3.5 py-2.5 justify-between'
+                  } text-zinc-500`}
+                >
+                  <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'}`}>
+                    <Icon className="w-5 h-5 shrink-0 text-zinc-500" />
+                    {!isCollapsed && <span>{item.name}</span>}
+                  </div>
+                  {!isCollapsed && item.comingSoon && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 bg-zinc-800 text-zinc-400 border border-zinc-700 uppercase tracking-wide">
+                      Soon
+                    </span>
+                  )}
+                  {/* Collapsed tooltip */}
+                  {isCollapsed && (
+                    <div className="hidden md:flex absolute left-full ml-3 px-3 py-1.5 bg-zinc-900 border border-zinc-700 text-zinc-400 text-xs font-semibold rounded-lg shadow-2xl whitespace-nowrap items-center gap-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
+                      <span>{item.name}</span>
+                      {item.comingSoon && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 uppercase tracking-wide">
+                          Soon
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            }
 
             return (
               <Link

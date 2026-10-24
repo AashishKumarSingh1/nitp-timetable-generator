@@ -1,19 +1,40 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import type { Pool } from 'pg';
 
 // Check if running against Postgres or SQLite
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const isPostgres = DATABASE_URL.startsWith('postgres://') || DATABASE_URL.startsWith('postgresql://');
 
-let pgPool: any = null;
-let sqliteDb: any = null;
+// Helper type for Node's built-in sqlite DatabaseSync
+type DatabaseSync = {
+  exec(sql: string): void;
+  prepare(sql: string): { all(...params: unknown[]): unknown[]; run(...params: unknown[]): { changes: number; lastInsertRowid: number | bigint } };
+  close(): void;
+};
 
 // Global singleton caching to avoid multiple connections across HMR in Next.js
 declare global {
-  // eslint-disable-next-line no-var
-  var __sqliteDbInstance: any;
-  // eslint-disable-next-line no-var
-  var __pgPoolInstance: any;
+  var __sqliteDbInstance: DatabaseSync | undefined;
+  var __pgPoolInstance: Pool | undefined;
+}
+
+function loadSqliteDb(): new (path: string) => DatabaseSync {
+  // Use the official Node.js built-in sqlite module.
+  // Prefer getBuiltinModule (Node 22+), fall back to Function('return require')
+  // so bundlers cannot statically tree-shake the require call.
+  type SqliteModule = { DatabaseSync: new (path: string) => DatabaseSync };
+  type ProcessWithBuiltin = NodeJS.Process & { getBuiltinModule?: (id: string) => SqliteModule };
+
+  const proc = process as ProcessWithBuiltin;
+  let mod: SqliteModule;
+  if (typeof proc.getBuiltinModule === 'function') {
+    mod = proc.getBuiltinModule('node:sqlite') as SqliteModule;
+  } else {
+    mod = Function('return require')('node:sqlite') as SqliteModule;
+  }
+
+  return mod.DatabaseSync;
 }
 
 export function resetDatabase() {
@@ -23,35 +44,34 @@ export function resetDatabase() {
     } catch {
       // ignore close errors
     }
-    global.__sqliteDbInstance = null;
+    global.__sqliteDbInstance = undefined;
   }
 }
 
-function getDatabase() {
+function getDatabase(): { type: 'pg'; client: Pool } | { type: 'sqlite'; client: DatabaseSync } {
   if (isPostgres) {
     if (!global.__pgPoolInstance) {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { Pool } = require('pg');
-      global.__pgPoolInstance = new Pool({
+      const { Pool: PgPool } = require('pg') as { Pool: new (opts: object) => Pool };
+      global.__pgPoolInstance = new PgPool({
         connectionString: DATABASE_URL,
+        max: 10,
+        idleTimeoutMillis: 30_000,
+        connectionTimeoutMillis: 5_000,
       });
     }
-    return { type: 'pg', client: global.__pgPoolInstance };
+    return { type: 'pg', client: global.__pgPoolInstance! };
   }
 
   if (!global.__sqliteDbInstance) {
-    const sqliteModule = (process as any).getBuiltinModule
-      ? (process as any).getBuiltinModule('node:sqlite')
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      : eval('require')('node:sqlite');
-    const { DatabaseSync } = sqliteModule;
+    const DatabaseSync = loadSqliteDb();
     const dataDir = path.join(process.cwd(), 'data');
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }
     const dbPath = path.join(dataDir, 'scheduler.db');
     const db = new DatabaseSync(dbPath);
-    
+
     // Enable WAL mode, busy timeout & normal sync for multi-process safety
     db.exec('PRAGMA journal_mode = WAL;');
     db.exec('PRAGMA busy_timeout = 10000;');
@@ -68,8 +88,9 @@ function getDatabase() {
     global.__sqliteDbInstance = db;
   }
 
-  return { type: 'sqlite', client: global.__sqliteDbInstance };
+  return { type: 'sqlite', client: global.__sqliteDbInstance! };
 }
+
 
 export function normalizeSql(sql: string, targetType: 'sqlite' | 'pg'): string {
   if (targetType === 'sqlite') {
@@ -82,17 +103,18 @@ export function normalizeSql(sql: string, targetType: 'sqlite' | 'pg'): string {
   }
 }
 
-export async function query<T = any>(sqlText: string, params: any[] = []): Promise<T[]> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function query<T = any>(sqlText: string, params: unknown[] = []): Promise<T[]> {
   const start = performance.now();
-  let db = getDatabase();
+  let db: ReturnType<typeof getDatabase> = getDatabase();
 
   if (db.type === 'pg') {
     const normSql = normalizeSql(sqlText, 'pg');
-    const res = await db.client.query(normSql, params);
+    const res = await db.client.query(normSql, params as unknown[]);
     if (process.env.NODE_ENV === 'development') {
       console.log('[PG SQL]', { text: normSql, duration: performance.now() - start, rows: res.rowCount });
     }
-    return res.rows;
+    return res.rows as T[];
   }
 
   // SQLite execution with auto-recovery on connection desynchronization
@@ -104,30 +126,37 @@ export async function query<T = any>(sqlText: string, params: any[] = []): Promi
       console.log('[SQLite]', { text: normSql, duration: performance.now() - start, rows: rows.length });
     }
     return rows;
-  } catch (err: any) {
-    if (err.message?.includes('malformed') || err.message?.includes('busy') || err.message?.includes('locked')) {
-      console.warn('[SQLite] Auto-recovering desynchronized database connection...', err.message);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '';
+    if (msg.includes('malformed') || msg.includes('busy') || msg.includes('locked')) {
+      console.warn('[SQLite] Auto-recovering desynchronized database connection...', msg);
       resetDatabase();
       db = getDatabase();
-      const stmt = db.client.prepare(normSql);
-      return stmt.all(...params) as T[];
+      if (db.type === 'sqlite') {
+        const stmt = db.client.prepare(normSql);
+        return stmt.all(...params) as T[];
+      }
     }
     throw err;
   }
 }
 
-export async function queryOne<T = any>(sqlText: string, params: any[] = []): Promise<T | null> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function queryOne<T = any>(sqlText: string, params: unknown[] = []): Promise<T | null> {
   const rows = await query<T>(sqlText, params);
   return rows.length > 0 ? rows[0] : null;
 }
 
-export async function execute(sqlText: string, params: any[] = []): Promise<{ changes: number; lastInsertRowid?: number | bigint }> {
+export async function execute(sqlText: string, params: unknown[] = []): Promise<{ changes: number; lastInsertRowid?: number | bigint }> {
   const start = performance.now();
-  let db = getDatabase();
+  let db: ReturnType<typeof getDatabase> = getDatabase();
 
   if (db.type === 'pg') {
     const normSql = normalizeSql(sqlText, 'pg');
-    const res = await db.client.query(normSql, params);
+    const res = await db.client.query(normSql, params as unknown[]);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[PG Exec]', { text: normSql, duration: performance.now() - start, changes: res.rowCount });
+    }
     return { changes: res.rowCount || 0 };
   }
 
@@ -142,44 +171,49 @@ export async function execute(sqlText: string, params: any[] = []): Promise<{ ch
       changes: Number(result.changes),
       lastInsertRowid: result.lastInsertRowid,
     };
-  } catch (err: any) {
-    if (err.message?.includes('malformed') || err.message?.includes('busy') || err.message?.includes('locked')) {
-      console.warn('[SQLite Exec] Auto-recovering desynchronized database connection...', err.message);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '';
+    if (msg.includes('malformed') || msg.includes('busy') || msg.includes('locked')) {
+      console.warn('[SQLite Exec] Auto-recovering desynchronized database connection...', msg);
       resetDatabase();
       db = getDatabase();
-      const stmt = db.client.prepare(normSql);
-      const result = stmt.run(...params);
-      return {
-        changes: Number(result.changes),
-        lastInsertRowid: result.lastInsertRowid,
-      };
+      if (db.type === 'sqlite') {
+        const stmt = db.client.prepare(normSql);
+        const result = stmt.run(...params);
+        return {
+          changes: Number(result.changes),
+          lastInsertRowid: result.lastInsertRowid,
+        };
+      }
     }
     throw err;
   }
 }
 
 export async function transaction<T>(callback: (client: {
-  query: <R = any>(text: string, params?: any[]) => Promise<R[]>;
-  queryOne: <R = any>(text: string, params?: any[]) => Promise<R | null>;
-  execute: (text: string, params?: any[]) => Promise<{ changes: number; lastInsertRowid?: number | bigint }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: <R = any>(text: string, params?: unknown[]) => Promise<R[]>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  queryOne: <R = any>(text: string, params?: unknown[]) => Promise<R | null>;
+  execute: (text: string, params?: unknown[]) => Promise<{ changes: number; lastInsertRowid?: number | bigint }>;
 }) => Promise<T>): Promise<T> {
-  let db = getDatabase();
+  const db = getDatabase();
 
   if (db.type === 'pg') {
     const client = await db.client.connect();
     try {
       await client.query('BEGIN');
       const txClient = {
-        query: async <R = any>(text: string, params: any[] = []) => {
-          const res = await client.query(normalizeSql(text, 'pg'), params);
+        query: async <R = unknown>(text: string, params: unknown[] = []) => {
+          const res = await client.query(normalizeSql(text, 'pg'), params as unknown[]);
           return res.rows as R[];
         },
-        queryOne: async <R = any>(text: string, params: any[] = []) => {
-          const res = await client.query(normalizeSql(text, 'pg'), params);
+        queryOne: async <R = unknown>(text: string, params: unknown[] = []) => {
+          const res = await client.query(normalizeSql(text, 'pg'), params as unknown[]);
           return (res.rows[0] || null) as R | null;
         },
-        execute: async (text: string, params: any[] = []) => {
-          const res = await client.query(normalizeSql(text, 'pg'), params);
+        execute: async (text: string, params: unknown[] = []) => {
+          const res = await client.query(normalizeSql(text, 'pg'), params as unknown[]);
           return { changes: res.rowCount || 0 };
         },
       };
@@ -198,16 +232,16 @@ export async function transaction<T>(callback: (client: {
   try {
     db.client.exec('BEGIN IMMEDIATE');
     const txClient = {
-      query: async <R = any>(text: string, params: any[] = []) => {
+      query: async <R = unknown>(text: string, params: unknown[] = []) => {
         const stmt = db.client.prepare(normalizeSql(text, 'sqlite'));
         return stmt.all(...params) as R[];
       },
-      queryOne: async <R = any>(text: string, params: any[] = []) => {
+      queryOne: async <R = unknown>(text: string, params: unknown[] = []) => {
         const stmt = db.client.prepare(normalizeSql(text, 'sqlite'));
         const rows = stmt.all(...params) as R[];
         return rows[0] || null;
       },
-      execute: async (text: string, params: any[] = []) => {
+      execute: async (text: string, params: unknown[] = []) => {
         const stmt = db.client.prepare(normalizeSql(text, 'sqlite'));
         const res = stmt.run(...params);
         return { changes: Number(res.changes), lastInsertRowid: res.lastInsertRowid };
@@ -216,14 +250,15 @@ export async function transaction<T>(callback: (client: {
     const result = await callback(txClient);
     db.client.exec('COMMIT');
     return result;
-  } catch (e: any) {
+  } catch (e: unknown) {
     try {
       db.client.exec('ROLLBACK');
     } catch {
       // ignore rollback failure
     }
-    if (e.message?.includes('malformed') || e.message?.includes('busy') || e.message?.includes('locked')) {
-      console.warn('[SQLite Transaction] Auto-recovering desynchronized database connection...', e.message);
+    const msg = e instanceof Error ? e.message : '';
+    if (msg.includes('malformed') || msg.includes('busy') || msg.includes('locked')) {
+      console.warn('[SQLite Transaction] Auto-recovering desynchronized database connection...', msg);
       resetDatabase();
     }
     throw e;

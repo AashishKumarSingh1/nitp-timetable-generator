@@ -157,3 +157,8 @@ CREATE TABLE IF NOT EXISTS teaching_assignments (
 CREATE INDEX IF NOT EXISTS idx_sections_dept ON sections(department_id);
 CREATE INDEX IF NOT EXISTS idx_assignments_section ON teaching_assignments(section_id);
 CREATE INDEX IF NOT EXISTS idx_assignments_faculty ON teaching_assignments(faculty_id);
+
+-- Additional performance indexes
+CREATE INDEX IF NOT EXISTS idx_sessions_section ON class_sessions(section_name);
+CREATE INDEX IF NOT EXISTS idx_students_dept_sem ON students(department_id, semester);
+CREATE INDEX IF NOT EXISTS idx_seat_alloc_student ON seat_allocations(student_id);
