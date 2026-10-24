@@ -36,10 +36,10 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Departments', href: '/departments', icon: Building2 },
   { name: 'Rooms & Halls', href: '/rooms', icon: DoorOpen },
   { name: 'Faculty Directory', href: '/faculty', icon: Users },
-  { name: 'Student Directory', href: '/students', icon: GraduationCap, badge: 'Roster' },
-  { name: 'Sections & Mapping', href: '/sections', icon: UserCheck, badge: 'Strength' },
-  { name: 'Class Timetable', href: '/schedule', icon: Calendar, badge: 'Clash-Free' },
-  { name: 'Exam Seating Plan', href: '/seating', icon: Armchair, badge: 'Anti-Cheat' },
+  { name: 'Student Directory', href: '/students', icon: GraduationCap },
+  { name: 'Sections & Mapping', href: '/sections', icon: UserCheck },
+  { name: 'Class Timetable', href: '/schedule', icon: Calendar },
+  { name: 'Exam Seating Plan', href: '/seating', icon: Armchair },
 ];
 
 const ROUTE_INFO: Record<string, { title: string; subtitle: string; category: string }> = {
