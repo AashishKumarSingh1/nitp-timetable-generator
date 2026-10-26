@@ -18,6 +18,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { Badge } from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
 import { Section, Course, Faculty, Department, Allocation, SEMESTERS } from '../types';
@@ -121,6 +122,30 @@ export function AllocationsTab({
     }
     return map;
   }, [faculty, allocations]);
+
+  // Options for SearchableSelect
+  const quickCourseOptions = useMemo(() => {
+    return filteredCoursesForQuick.map((c) => ({
+      value: c.id,
+      label: `${c.code} · ${c.name}`,
+      sublabel: `Sem ${c.semester || '-'} · ${c.periods_per_week || 3} hrs/week`,
+      badge: c.span > 1 ? `${c.span}h Lab` : '1h Lec',
+      searchTerms: `${c.code} ${c.name}`,
+    }));
+  }, [filteredCoursesForQuick]);
+
+  const quickFacultyOptions = useMemo(() => {
+    return filteredFacultyForQuick.map((f) => {
+      const wl = facultyWorkloadMap.get(f.id);
+      return {
+        value: f.id,
+        label: `${f.name} (${f.code})`,
+        badge: `${wl?.current || 0}/${wl?.max || 18} hrs`,
+        sublabel: wl && wl.remaining === 0 ? 'Capacity reached' : undefined,
+        searchTerms: `${f.name} ${f.code}`,
+      };
+    });
+  }, [filteredFacultyForQuick, facultyWorkloadMap]);
 
   // Keep quick mapping selectors aligned
   useEffect(() => {
@@ -341,22 +366,18 @@ export function AllocationsTab({
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300 mb-1.5">
                     2. Subject Code & Course
                   </label>
-                  <Select
+                  <SearchableSelect
                     value={quickCourseId}
-                    onChange={(e) => setQuickCourseId(e.target.value)}
-                    className="w-full text-xs font-mono font-medium"
-                    required
-                  >
-                    {filteredCoursesForQuick.length === 0 ? (
-                      <option value="">No courses available</option>
-                    ) : (
-                      filteredCoursesForQuick.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.code} · {c.name} ({c.span > 1 ? `${c.span}h Lab` : '1h Lec'})
-                        </option>
-                      ))
-                    )}
-                  </Select>
+                    onChange={(val) => setQuickCourseId(val)}
+                    options={quickCourseOptions}
+                    placeholder={
+                      filteredCoursesForQuick.length === 0
+                        ? 'No courses available'
+                        : 'Select course...'
+                    }
+                    searchPlaceholder="Search course code (e.g. CE301, Concrete)..."
+                    disabled={filteredCoursesForQuick.length === 0}
+                  />
                 </div>
 
                 {/* 3. Section Scope */}
@@ -399,25 +420,18 @@ export function AllocationsTab({
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300 mb-1.5">
                     4. Assigned Faculty
                   </label>
-                  <Select
+                  <SearchableSelect
                     value={quickFacultyId}
-                    onChange={(e) => setQuickFacultyId(e.target.value)}
-                    className="w-full text-xs"
-                    required
-                  >
-                    {filteredFacultyForQuick.length === 0 ? (
-                      <option value="">No faculty in this department</option>
-                    ) : (
-                      filteredFacultyForQuick.map((f) => {
-                        const wl = facultyWorkloadMap.get(f.id);
-                        return (
-                          <option key={f.id} value={f.id}>
-                            {f.name} ({f.code}) — {wl?.current || 0}/{wl?.max || 18} hrs
-                          </option>
-                        );
-                      })
-                    )}
-                  </Select>
+                    onChange={(val) => setQuickFacultyId(val)}
+                    options={quickFacultyOptions}
+                    placeholder={
+                      filteredFacultyForQuick.length === 0
+                        ? 'No faculty in this department'
+                        : 'Select faculty member...'
+                    }
+                    searchPlaceholder="Search faculty name or code..."
+                    disabled={filteredFacultyForQuick.length === 0}
+                  />
                 </div>
               </div>
 
