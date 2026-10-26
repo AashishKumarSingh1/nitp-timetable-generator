@@ -17,7 +17,7 @@ export const WDC_TEAM_MEMBERS = [
       'Cloud Computing, Nature Inspired Algorithms, Edge Computing, Workflow Scheduling, Quantum Computing',
     image: 'https://drive.google.com/thumbnail?authuser=0&sz=w320&id=1Abn5VMv4oWnpUYyNtO_j-mrh5YBNzD-C',
     badge: 'Faculty In-Charge',
-    link: 'https://www.nitp.ac.in/Department/CSE/faculty/balaji.cs@nitp.ac.in',
+    link: 'https://www.nitp.ac.in/profile/balaji.cs@nitp.ac.in',
     icon: GraduationCap,
     iconColor: 'text-blue-700',
     titleColor: 'text-blue-700',
@@ -50,7 +50,7 @@ export const WDC_TEAM_MEMBERS = [
   },
   {
     role: 'Algorithm & Optimization Lead',
-    name: 'Naveen M M',
+    name: 'Naveen Mastamardi',
     title: 'Algorithm & Optimization Specialist',
     research:
       'Combinatorial Optimization, Genetic & Greedy Scheduling Algorithms, Collision-Free Heuristics',
