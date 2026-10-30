@@ -4,6 +4,7 @@ export interface ClassSession {
   period_index: number;
   span: number;
   section_name: string;
+  batch?: string; // 'ALL', 'Batch 1', 'Batch 2'
   is_pinned: boolean | number;
   course_id: string;
   course_code: string;
@@ -19,6 +20,26 @@ export interface ClassSession {
   mergedIds?: string[];
 }
 
+export type StudioPerspective = 'SECTIONS' | 'FACULTY' | 'ROOMS';
+export type GridDensity = 'compact' | 'normal' | 'comfortable';
+
+export interface UnplacedDemand {
+  id: string;
+  courseId: string;
+  courseCode: string;
+  courseName: string;
+  facultyId: string;
+  facultyName: string;
+  facultyCode: string;
+  sectionName: string;
+  batch?: string;
+  span: number;
+  periodsPerWeek: number;
+  reason?: string;
+  lessonFormat?: LessonFormat;
+  lesson_format?: LessonFormat;
+}
+
 export interface FilterOption {
   id: string;
   name: string;
@@ -26,6 +47,12 @@ export interface FilterOption {
   type?: string;
   capacity?: number;
   department_id?: string;
+  time_off?: string | null;
+  color?: string | null;
+  designation?: string;
+  email?: string;
+  max_daily_periods?: number;
+  max_weekly_periods?: number;
 }
 
 export interface CourseOption {
@@ -35,6 +62,8 @@ export interface CourseOption {
   department_name?: string;
   department_code?: string;
   span?: number;
+  periods_per_week?: number;
+  lesson_format?: LessonFormat;
 }
 
 export interface PeriodSlot {
@@ -184,7 +213,7 @@ export const LAB_THEME: CourseTheme = {
   dotColor: 'bg-teal-500',
 };
 
-export function getCourseTheme(courseCode: string, isLab: boolean): CourseTheme {
+export function getCourseTheme(courseCode: string, isLab = false): CourseTheme {
   if (isLab) return LAB_THEME;
   let hash = 0;
   for (let i = 0; i < courseCode.length; i++) {
@@ -286,3 +315,118 @@ export function mergeAdjacentSessions(
 
   return result;
 }
+
+export function isSameSection(a?: string | null, b?: string | null): boolean {
+  if (!a || !b) return false;
+  const cleanA = a.trim();
+  const cleanB = b.trim();
+  if (cleanA.toLowerCase() === cleanB.toLowerCase()) return true;
+
+  // Department prefix is strictly separated by space-hyphen-space: e.g. "CSE - Section A"
+  const matchA = cleanA.match(/^([a-z0-9_]+)\s+-\s+(.+)$/i);
+  const matchB = cleanB.match(/^([a-z0-9_]+)\s+-\s+(.+)$/i);
+
+  if (matchA && matchB) {
+    // Both have department prefixes: both department code and section name must match
+    const deptA = matchA[1].toLowerCase();
+    const deptB = matchB[1].toLowerCase();
+    const secA = matchA[2].trim().toLowerCase();
+    const secB = matchB[2].trim().toLowerCase();
+    return deptA === deptB && secA === secB;
+  }
+
+  if (matchA && !matchB) {
+    // Only A has department prefix (e.g. A="EE - Section B", B="Section B")
+    const secA = matchA[2].trim().toLowerCase();
+    const secB = cleanB.toLowerCase();
+    return secA === secB;
+  }
+
+  if (!matchA && matchB) {
+    // Only B has department prefix (e.g. A="Section B", B="EE - Section B")
+    const secA = cleanA.toLowerCase();
+    const secB = matchB[2].trim().toLowerCase();
+    return secA === secB;
+  }
+
+  return cleanA.toLowerCase() === cleanB.toLowerCase();
+}
+
+export type LessonFormat =
+  | '1_AT_A_TIME'
+  | '1_AND_2_MIX'
+  | '2_AT_A_TIME'
+  | '3_AT_A_TIME'
+  | 'DEFAULT';
+
+export const LESSON_FORMAT_LABELS: Record<LessonFormat, string> = {
+  '1_AT_A_TIME': '1 hour at a time (e.g. 1 + 1 + 1)',
+  '1_AND_2_MIX': '1 and 2 mix (e.g. 2 + 1 double & single)',
+  '2_AT_A_TIME': '2 hours at a time (e.g. 2 + 2 double blocks)',
+  '3_AT_A_TIME': '3 hours at a time (e.g. 3-hour workshop/lab)',
+  'DEFAULT': 'Default (Follow Subject Setting)',
+};
+
+export function calculateSessionSpans(
+  periodsPerWeek: number,
+  format?: LessonFormat | string | null,
+  defaultSpan = 1
+): number[] {
+  const periods = Math.max(1, Number(periodsPerWeek) || 1);
+  const fmt = ((format as LessonFormat) || '1_AT_A_TIME').toUpperCase();
+
+  if (fmt === '1_AND_2_MIX') {
+    if (periods <= 1) return [1];
+    if (periods === 2) return [2];
+    if (periods === 3) return [2, 1];
+    if (periods === 4) return [2, 1, 1];
+    if (periods === 5) return [2, 2, 1];
+    if (periods === 6) return [2, 2, 1, 1];
+
+    const spans: number[] = [];
+    let rem = periods;
+    while (rem > 2) {
+      spans.push(2);
+      rem -= 2;
+    }
+    if (rem === 2) spans.push(2);
+    else if (rem === 1) spans.push(1);
+    return spans;
+  }
+
+  if (fmt === '2_AT_A_TIME') {
+    const spans: number[] = [];
+    let rem = periods;
+    while (rem >= 2) {
+      spans.push(2);
+      rem -= 2;
+    }
+    if (rem > 0) spans.push(rem);
+    return spans;
+  }
+
+  if (fmt === '3_AT_A_TIME') {
+    const spans: number[] = [];
+    let rem = periods;
+    while (rem >= 3) {
+      spans.push(3);
+      rem -= 3;
+    }
+    if (rem > 0) spans.push(rem);
+    return spans;
+  }
+
+  if (fmt === 'DEFAULT' && defaultSpan > 1) {
+    const spans: number[] = [];
+    let rem = periods;
+    while (rem >= defaultSpan) {
+      spans.push(defaultSpan);
+      rem -= defaultSpan;
+    }
+    if (rem > 0) spans.push(rem);
+    return spans;
+  }
+
+  return Array(periods).fill(1);
+}
+

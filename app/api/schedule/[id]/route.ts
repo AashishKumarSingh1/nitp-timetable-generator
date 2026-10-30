@@ -13,6 +13,7 @@ export async function PUT(
       faculty_id,
       room_id,
       section_name,
+      batch = 'ALL',
       day,
       period_index,
       span = 1,
@@ -46,7 +47,12 @@ export async function PUT(
       );
     }
 
-    // 1. Conflict Check: Room Availability (excluding self)
+    const excludeIds: string[] = Array.isArray(body.exclude_ids) && body.exclude_ids.length > 0
+      ? body.exclude_ids
+      : [id];
+    const excludePlaceholders = excludeIds.map(() => '?').join(',');
+
+    // 1. Conflict Check: Room Availability (excluding self/merged sessions)
     const roomConflicts = await query<{
       period_index: number;
       span: number;
@@ -57,8 +63,8 @@ export async function PUT(
        FROM class_sessions cs
        JOIN rooms r ON r.id = cs.room_id
        JOIN courses c ON c.id = cs.course_id
-       WHERE cs.room_id = ? AND cs.day = ? AND cs.id != ?`,
-      [room_id, day, id]
+       WHERE cs.room_id = ? AND cs.day = ? AND cs.id NOT IN (${excludePlaceholders})`,
+      [room_id, day, ...excludeIds]
     );
 
     for (const conf of roomConflicts) {
@@ -75,7 +81,7 @@ export async function PUT(
       }
     }
 
-    // 2. Conflict Check: Faculty Availability (excluding self)
+    // 2. Conflict Check: Faculty Availability (excluding self/merged sessions)
     const facultyConflicts = await query<{
       period_index: number;
       span: number;
@@ -86,8 +92,8 @@ export async function PUT(
        FROM class_sessions cs
        JOIN faculty f ON f.id = cs.faculty_id
        JOIN courses c ON c.id = cs.course_id
-       WHERE cs.faculty_id = ? AND cs.day = ? AND cs.id != ?`,
-      [faculty_id, day, id]
+       WHERE cs.faculty_id = ? AND cs.day = ? AND cs.id NOT IN (${excludePlaceholders})`,
+      [faculty_id, day, ...excludeIds]
     );
 
     for (const conf of facultyConflicts) {
@@ -104,27 +110,38 @@ export async function PUT(
       }
     }
 
-    // 3. Conflict Check: Section Availability (excluding self)
-    const sectionConflicts = await query<{
+    // 3. Conflict Check: Section Availability (excluding self/merged sessions)
+    const daySessions = await query<{
       period_index: number;
       span: number;
       section_name: string;
+      batch: string;
       course_code: string;
     }>(
-      `SELECT cs.period_index, cs.span, cs.section_name, c.code AS course_code
+      `SELECT cs.period_index, cs.span, cs.section_name, cs.batch, c.code AS course_code
        FROM class_sessions cs
        JOIN courses c ON c.id = cs.course_id
-       WHERE cs.section_name = ? AND cs.day = ? AND cs.id != ?`,
-      [section_name, day, id]
+       WHERE cs.day = ? AND cs.id NOT IN (${excludePlaceholders})`,
+      [day, ...excludeIds]
     );
 
-    for (const conf of sectionConflicts) {
+    const normTarget = section_name.toLowerCase().trim();
+    for (const conf of daySessions) {
+      const normConf = (conf.section_name || '').toLowerCase().trim();
+      const isSecMatch =
+        normConf === normTarget ||
+        normConf.endsWith(normTarget) ||
+        normTarget.endsWith(normConf);
+      if (!isSecMatch) continue;
+
       const confStart = conf.period_index;
       const confEnd = conf.period_index + conf.span - 1;
-      if (Math.max(pStart, confStart) <= Math.min(pEnd, confEnd)) {
+      const overlaps = Math.max(pStart, confStart) <= Math.min(pEnd, confEnd);
+      const isBatchClash = batch === 'ALL' || conf.batch === 'ALL' || batch === conf.batch;
+      if (overlaps && isBatchClash) {
         return NextResponse.json(
           {
-            error: `Section conflict: Cohort ${conf.section_name} already has ${conf.course_code} scheduled on ${day} Period ${confStart}.`,
+            error: `Section conflict: Cohort ${conf.section_name} (${conf.batch || 'ALL'}) already has ${conf.course_code} scheduled on ${day} Period ${confStart}.`,
             conflictType: 'SECTION',
           },
           { status: 409 }
@@ -135,9 +152,9 @@ export async function PUT(
     await execute(
       `UPDATE class_sessions
        SET day = ?, period_index = ?, span = ?, course_id = ?, faculty_id = ?,
-           room_id = ?, section_name = ?, is_pinned = ?, updated_at = CURRENT_TIMESTAMP
+           room_id = ?, section_name = ?, batch = ?, is_pinned = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [day, pStart, pSpan, course_id, faculty_id, room_id, section_name, is_pinned ? 1 : 0, id]
+      [day, pStart, pSpan, course_id, faculty_id, room_id, section_name, batch || 'ALL', is_pinned ? 1 : 0, id]
     );
 
     return NextResponse.json({ success: true });

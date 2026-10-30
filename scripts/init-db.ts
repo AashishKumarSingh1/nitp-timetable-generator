@@ -21,7 +21,32 @@ async function initDb() {
       console.warn(`[Warning running statement] ${err.message}`);
     }
   }
-  console.log('✅ Schema tables and indexes verified.');
+
+  // Safe incremental schema column additions
+  const migrations = [
+    'ALTER TABLE rooms ADD COLUMN time_off TEXT DEFAULT NULL',
+    'ALTER TABLE rooms ADD COLUMN color VARCHAR(20) DEFAULT NULL',
+    'ALTER TABLE faculty ADD COLUMN time_off TEXT DEFAULT NULL',
+    'ALTER TABLE faculty ADD COLUMN color VARCHAR(20) DEFAULT NULL',
+    'ALTER TABLE courses ADD COLUMN time_off TEXT DEFAULT NULL',
+    'ALTER TABLE courses ADD COLUMN color VARCHAR(20) DEFAULT NULL',
+    'ALTER TABLE sections ADD COLUMN time_off TEXT DEFAULT NULL',
+    'ALTER TABLE sections ADD COLUMN color VARCHAR(20) DEFAULT NULL',
+    "ALTER TABLE class_sessions ADD COLUMN batch VARCHAR(50) DEFAULT 'ALL'",
+    "ALTER TABLE teaching_assignments ADD COLUMN batch VARCHAR(50) DEFAULT 'ALL'",
+    "ALTER TABLE courses ADD COLUMN lesson_format VARCHAR(20) DEFAULT '1_AT_A_TIME'",
+    "ALTER TABLE teaching_assignments ADD COLUMN lesson_format VARCHAR(20) DEFAULT 'DEFAULT'",
+  ];
+
+  for (const mig of migrations) {
+    try {
+      await execute(mig);
+    } catch {
+      // Column likely already exists
+    }
+  }
+
+  console.log('✅ Schema tables, columns, and indexes verified.');
 
   // Check if admin user exists
   const existingAdmin = await queryOne('SELECT id FROM users WHERE email = ?', ['admin@nitp.ac.in']);

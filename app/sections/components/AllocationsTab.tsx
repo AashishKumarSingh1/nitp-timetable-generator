@@ -722,13 +722,17 @@ export function AllocationsTab({
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-1.5">
                           <span className="font-bold font-mono text-red-700 dark:text-red-400">{alloc.course_code}</span>
-                          {alloc.course_span > 1 ? (
+                          {(alloc.lesson_format === '1_AND_2_MIX' || (!alloc.lesson_format && alloc.course_lesson_format === '1_AND_2_MIX')) ? (
+                            <span className="px-1.5 py-0.2 rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 text-[10px] font-bold border border-indigo-200 dark:border-indigo-800">
+                              1 & 2h Mix
+                            </span>
+                          ) : alloc.course_span > 1 ? (
                             <span className="px-1.5 py-0.2 rounded-md bg-stone-100 text-stone-800 dark:bg-stone-800 dark:text-stone-200 text-[10px] font-bold border border-stone-200 dark:border-stone-700">
-                              {alloc.course_span}h Lab
+                              {alloc.course_span}h Block
                             </span>
                           ) : (
                             <span className="px-1.5 py-0.2 rounded-md bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 text-[10px] font-medium border border-zinc-200 dark:border-zinc-700">
-                              Theory
+                              1h Single
                             </span>
                           )}
                         </div>

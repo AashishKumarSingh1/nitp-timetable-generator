@@ -8,7 +8,7 @@ export async function GET(
   try {
     const { id } = await params;
     const course = await query(
-      `SELECT c.id, c.code, c.name, c.department_id, c.semester, c.periods_per_week, c.span,
+      `SELECT c.id, c.code, c.name, c.department_id, c.semester, c.periods_per_week, c.span, c.lesson_format,
               d.name AS department_name, d.code AS department_code
        FROM courses c
        LEFT JOIN departments d ON d.id = c.department_id
@@ -34,7 +34,15 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { code, name, department_id, semester = 3, periods_per_week = 3, span = 1 } = body;
+    const {
+      code,
+      name,
+      department_id,
+      semester = 3,
+      periods_per_week = 3,
+      span = 1,
+      lesson_format = '1_AT_A_TIME',
+    } = body;
 
     if (!code || !name || !department_id) {
       return NextResponse.json(
@@ -45,9 +53,18 @@ export async function PUT(
 
     await execute(
       `UPDATE courses
-       SET code = ?, name = ?, department_id = ?, semester = ?, periods_per_week = ?, span = ?, updated_at = CURRENT_TIMESTAMP
+       SET code = ?, name = ?, department_id = ?, semester = ?, periods_per_week = ?, span = ?, lesson_format = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [code.trim().toUpperCase(), name.trim(), department_id, Number(semester), Number(periods_per_week), Number(span), id]
+      [
+        code.trim().toUpperCase(),
+        name.trim(),
+        department_id,
+        Number(semester),
+        Number(periods_per_week),
+        Number(span),
+        lesson_format || '1_AT_A_TIME',
+        id,
+      ]
     );
 
     return NextResponse.json({ success: true });

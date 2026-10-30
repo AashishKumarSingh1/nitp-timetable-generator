@@ -6,6 +6,7 @@ export async function GET() {
     const rooms = await query(`
       SELECT r.id, r.code, r.name, r.building, r.floor, r.type,
              r.rows, r.cols, r.capacity, r.is_available,
+             r.time_off, r.color,
              r.department_id, d.name AS department_name, d.code AS department_code
       FROM rooms r
       LEFT JOIN departments d ON d.id = r.department_id

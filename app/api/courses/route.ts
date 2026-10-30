@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query, execute } from '@/lib/db';
 import crypto from 'node:crypto';
 
-// Ensure courses table has semester column
+// Ensure courses table has semester and lesson_format columns
 async function ensureCourseSchema() {
   try {
     await execute('ALTER TABLE courses ADD COLUMN semester INT NOT NULL DEFAULT 3');
-  } catch {
-    // Column already exists
-  }
+  } catch {}
+  try {
+    await execute("ALTER TABLE courses ADD COLUMN lesson_format VARCHAR(20) DEFAULT '1_AT_A_TIME'");
+  } catch {}
 }
 
 export async function GET(req: NextRequest) {
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
     const semester = searchParams.get('semester');
 
     let sql = `
-      SELECT c.id, c.code, c.name, c.department_id, c.semester, c.periods_per_week, c.span,
+      SELECT c.id, c.code, c.name, c.department_id, c.semester, c.periods_per_week, c.span, c.lesson_format,
              d.name AS department_name, d.code AS department_code
       FROM courses c
       LEFT JOIN departments d ON d.id = c.department_id
@@ -50,7 +51,15 @@ export async function POST(req: NextRequest) {
   try {
     await ensureCourseSchema();
     const body = await req.json();
-    const { code, name, department_id, semester = 3, periods_per_week = 3, span = 1 } = body;
+    const {
+      code,
+      name,
+      department_id,
+      semester = 3,
+      periods_per_week = 3,
+      span = 1,
+      lesson_format = '1_AT_A_TIME',
+    } = body;
 
     if (!code || !name || !department_id) {
       return NextResponse.json(
@@ -61,8 +70,8 @@ export async function POST(req: NextRequest) {
 
     const id = crypto.randomUUID();
     await execute(
-      `INSERT INTO courses (id, code, name, department_id, semester, periods_per_week, span)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO courses (id, code, name, department_id, semester, periods_per_week, span, lesson_format)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         code.trim().toUpperCase(),
@@ -71,6 +80,7 @@ export async function POST(req: NextRequest) {
         Number(semester) || 3,
         Number(periods_per_week) || 3,
         Number(span) || 1,
+        lesson_format || '1_AT_A_TIME',
       ]
     );
 

@@ -38,7 +38,7 @@ export function CoursesTab({
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('');
   const [semFilter, setSemFilter] = useState<number | ''>('');
-  const [spanFilter, setSpanFilter] = useState<'ALL' | 'THEORY' | 'LAB'>('ALL');
+  const [spanFilter, setSpanFilter] = useState<'ALL' | '1_HOUR' | 'MIXED' | 'LAB'>('ALL');
 
   const query = search.trim().toLowerCase();
 
@@ -46,8 +46,9 @@ export function CoursesTab({
     return courses.filter((c) => {
       if (deptFilter && c.department_id !== deptFilter) return false;
       if (semFilter && c.semester !== Number(semFilter)) return false;
-      if (spanFilter === 'THEORY' && (c.span || 1) > 1) return false;
-      if (spanFilter === 'LAB' && (c.span || 1) <= 1) return false;
+      if (spanFilter === '1_HOUR' && c.lesson_format !== '1_AT_A_TIME' && (c.lesson_format || (c.span || 1) > 1)) return false;
+      if (spanFilter === 'MIXED' && c.lesson_format !== '1_AND_2_MIX') return false;
+      if (spanFilter === 'LAB' && c.lesson_format !== '2_AT_A_TIME' && c.lesson_format !== '3_AT_A_TIME' && (c.span || 1) <= 1) return false;
       if (!query) return true;
       return (
         c.code.toLowerCase().includes(query) ||
@@ -114,11 +115,12 @@ export function CoursesTab({
           <Select
             value={spanFilter}
             onChange={(e) => setSpanFilter(e.target.value as any)}
-            className="text-xs py-1.5 w-full sm:w-32"
+            className="text-xs py-1.5 w-full sm:w-36"
           >
             <option value="ALL">All Formats</option>
-            <option value="THEORY">Theory Only</option>
-            <option value="LAB">Labs & Practical</option>
+            <option value="1_HOUR">1h Single Lectures</option>
+            <option value="MIXED">1 & 2h Mix</option>
+            <option value="LAB">2h/3h Lab Blocks</option>
           </Select>
 
           <Button onClick={onOpenAddModal} variant="primary" size="sm" className="text-xs shrink-0 whitespace-nowrap">
@@ -205,15 +207,25 @@ export function CoursesTab({
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-center">
-                        {c.span > 1 ? (
+                        {c.lesson_format === '1_AND_2_MIX' ? (
+                          <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800 inline-flex items-center gap-1.5 text-xs">
+                            <span className="w-2 h-2 rounded-full bg-indigo-600 dark:bg-indigo-400"></span>
+                            1 & 2h Mix
+                          </span>
+                        ) : (c.lesson_format === '3_AT_A_TIME' || (c.span === 3 && !c.lesson_format)) ? (
+                          <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1.5 text-xs">
+                            <FlaskConical className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                            3h Workshop
+                          </span>
+                        ) : (c.lesson_format === '2_AT_A_TIME' || (c.span === 2 && !c.lesson_format)) ? (
                           <span className="px-2.5 py-1 rounded-lg bg-stone-100 text-stone-800 dark:bg-stone-800 dark:text-stone-200 font-bold border border-stone-200 dark:border-stone-700 inline-flex items-center gap-1.5 text-xs">
                             <FlaskConical className="w-3.5 h-3.5 text-stone-600 dark:text-stone-400" />
-                            {c.span}h Lab Block
+                            2h Lab Block
                           </span>
                         ) : (
                           <span className="px-2.5 py-1 rounded-lg bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 font-medium border border-zinc-200 dark:border-zinc-700 inline-flex items-center gap-1.5 text-xs">
                             <BookOpen className="w-3.5 h-3.5 text-zinc-500" />
-                            1h Theory
+                            1h Single
                           </span>
                         )}
                       </td>

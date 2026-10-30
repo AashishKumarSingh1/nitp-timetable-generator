@@ -15,6 +15,7 @@ import {
   Download,
   Clock,
   GraduationCap,
+  CalendarCheck,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -23,6 +24,7 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
+import { TimeOffModal } from '@/components/timetable/TimeOffModal';
 
 interface FacultyMember {
   id: string;
@@ -36,6 +38,8 @@ interface FacultyMember {
   max_daily_periods: number;
   max_weekly_periods: number;
   assigned_periods?: number;
+  time_off?: string | null;
+  color?: string | null;
 }
 
 interface DepartmentOption {
@@ -86,6 +90,10 @@ export default function FacultyPage() {
     max_weekly_periods: 18,
   });
   const [saving, setSaving] = useState(false);
+
+  // Time-Off Availability Modal State
+  const [timeOffFaculty, setTimeOffFaculty] = useState<FacultyMember | null>(null);
+  const [isTimeOffModalOpen, setIsTimeOffModalOpen] = useState(false);
 
   // Bulk CSV Modal State
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
@@ -445,6 +453,21 @@ export default function FacultyPage() {
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
+                            onClick={() => {
+                              setTimeOffFaculty(f);
+                              setIsTimeOffModalOpen(true);
+                            }}
+                            className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium border ${
+                              f.time_off && f.time_off !== '{}'
+                                ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                                : 'text-zinc-600 bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700'
+                            }`}
+                            title="Time Off & Availability Matrix"
+                          >
+                            <CalendarCheck className="w-4 h-4 text-emerald-600" />
+                            <span className="hidden sm:inline text-[11px]">Time-Off</span>
+                          </button>
+                          <button
                             onClick={() => handleOpenEdit(f)}
                             className="p-1.5 rounded-lg text-zinc-400 hover:text-red-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
                             title="Edit"
@@ -544,6 +567,23 @@ export default function FacultyPage() {
               required
             />
           </div>
+
+          {editingFaculty && (
+            <div className="pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full text-xs font-semibold flex items-center justify-center gap-2 border-dashed border-zinc-300 dark:border-zinc-700 py-2 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => {
+                  setTimeOffFaculty(editingFaculty);
+                  setIsTimeOffModalOpen(true);
+                }}
+              >
+                <CalendarCheck className="w-4 h-4 text-emerald-600" />
+                <span>Configure Availability & Time-Off Matrix</span>
+              </Button>
+            </div>
+          )}
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-zinc-100 dark:border-zinc-800">
             <Button type="button" variant="outline" onClick={() => setIsSingleModalOpen(false)}>
@@ -710,6 +750,26 @@ export default function FacultyPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Faculty Time-Off & Availability Modal */}
+      <TimeOffModal
+        isOpen={isTimeOffModalOpen}
+        onClose={() => setIsTimeOffModalOpen(false)}
+        entityType="FACULTY"
+        entity={
+          timeOffFaculty
+            ? {
+                id: timeOffFaculty.id,
+                name: timeOffFaculty.name,
+                code: timeOffFaculty.code,
+                time_off: timeOffFaculty.time_off,
+              }
+            : null
+        }
+        onSaved={fetchData}
+        workingDays={5}
+        periodsCount={8}
+      />
     </div>
   );
 }

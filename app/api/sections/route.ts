@@ -40,6 +40,7 @@ export async function GET(req: NextRequest) {
 
     let sql = `
       SELECT s.id, s.name, s.department_id, s.semester, s.strength, s.academic_year,
+             s.time_off, s.color,
              d.name AS department_name, d.code AS department_code,
              COUNT(DISTINCT ta.id) AS assigned_courses_count
       FROM sections s
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
       params.push(departmentId);
     }
 
-    sql += ' GROUP BY s.id, s.name, s.department_id, s.semester, s.strength, s.academic_year, d.name, d.code';
+    sql += ' GROUP BY s.id, s.name, s.department_id, s.semester, s.strength, s.academic_year, s.time_off, s.color, d.name, d.code';
     sql += ' ORDER BY d.name ASC, s.semester ASC, s.name ASC';
 
     let sections = await query(sql, params);

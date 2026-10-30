@@ -58,18 +58,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isWdcModalOpen, setIsWdcModalOpen] = useState(false);
-  // Lazy initializer reads localStorage once on mount — avoids setState-in-effect
-  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      return localStorage.getItem('nitp_sidebar_collapsed') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [user, setUser] = useState<{ name: string; email: string; role: string } | null>(null);
   // Prevent duplicate user fetches across re-renders
   const userFetchedRef = useRef(false);
+
+  // Restore sidebar collapsed state after mount to avoid SSR hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const saved = localStorage.getItem('nitp_sidebar_collapsed');
+      if (saved === 'true') {
+        setIsCollapsed(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const currentRouteInfo = ROUTE_INFO[pathname] || {
     title: NAV_ITEMS.find((item) => pathname.startsWith(item.href))?.name || 'NIT Patna Portal',
@@ -150,7 +156,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-[#fafafa] flex flex-col md:flex-row text-zinc-900 antialiased selection:bg-red-900 selection:text-white">
       {/* Top Prestigious Crimson Accent Line (Main Content Area Only) */}
       <div
-        className={`no-print fixed top-0 right-0 left-0 h-1 bg-gradient-to-r from-red-800 via-rose-600 to-red-800 z-40 pointer-events-none transition-[left] duration-300 ease-in-out ${
+        className={`no-print fixed top-0 right-0 left-0 h-1 bg-gradient-to-r from-red-800 via-rose-600 to-red-800 z-40 pointer-events-none ${
+          mounted ? 'transition-[left] duration-300' : ''
+        } ease-in-out ${
           isCollapsed ? 'md:left-20' : 'md:left-68'
         }`}
       />
@@ -166,7 +174,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Sticky Left Sidebar Navigation */}
       <aside
-        className={`no-print fixed inset-y-0 left-0 z-50 bg-zinc-900 border-r border-zinc-800/90 flex flex-col transition-[width,transform] duration-300 ease-in-out md:sticky md:top-0 md:h-screen md:shrink-0 md:translate-x-0 shadow-xl md:shadow-none ${
+        className={`no-print fixed inset-y-0 left-0 z-50 bg-zinc-900 border-r border-zinc-800/90 flex flex-col ${
+          mounted ? 'transition-[width,transform] duration-300' : ''
+        } ease-in-out md:sticky md:top-0 md:h-screen md:shrink-0 md:translate-x-0 shadow-xl md:shadow-none ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } ${isCollapsed ? 'w-68 md:w-20' : 'w-68'}`}
       >
@@ -505,7 +515,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Bottom Prestigious Crimson Accent Line (Main Content Area Only) */}
       <div
-        className={`no-print fixed bottom-0 right-0 left-0 h-1 bg-gradient-to-r from-red-800 via-rose-600 to-red-800 z-30 pointer-events-none transition-[left] duration-300 ease-in-out ${
+        className={`no-print fixed bottom-0 right-0 left-0 h-1 bg-gradient-to-r from-red-800 via-rose-600 to-red-800 z-30 pointer-events-none ${
+          mounted ? 'transition-[left] duration-300' : ''
+        } ease-in-out ${
           isCollapsed ? 'md:left-20' : 'md:left-68'
         }`}
       />

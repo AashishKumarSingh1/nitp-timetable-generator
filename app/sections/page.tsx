@@ -10,6 +10,7 @@ import {
   GraduationCap,
   Clock,
   FlaskConical,
+  FileText,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -21,6 +22,8 @@ import { CoursesTab } from './components/CoursesTab';
 import { AllocationsTab } from './components/AllocationsTab';
 import { SectionModal } from './components/SectionModal';
 import { CourseModal } from './components/CourseModal';
+import { TimeOffModal } from '@/components/timetable/TimeOffModal';
+import { LessonsModal } from '@/app/schedule/components/LessonsModal';
 
 export default function SectionsPage() {
   const { toast } = useToast();
@@ -44,6 +47,13 @@ export default function SectionsPage() {
 
   const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+
+  // Time-Off Availability Modal State
+  const [isTimeOffModalOpen, setIsTimeOffModalOpen] = useState(false);
+  const [timeOffSection, setTimeOffSection] = useState<Section | null>(null);
+
+  // Lessons & Batches Modal State
+  const [isLessonsModalOpen, setIsLessonsModalOpen] = useState(false);
 
   // Fetch Master Data
   const fetchData = async () => {
@@ -152,6 +162,10 @@ export default function SectionsPage() {
 
           {activeTab === 'MAPPINGS' && (
             <div className="flex items-center gap-2">
+              <Button onClick={() => setIsLessonsModalOpen(true)} variant="outline" className="text-xs border-zinc-300 hover:border-red-600 hover:text-red-700">
+                <FileText className="w-4 h-4 mr-1.5 text-teal-600" />
+                Lessons & Batches
+              </Button>
               <Button onClick={handleOpenAddCourse} variant="outline" className="text-xs">
                 <BookOpen className="w-4 h-4 mr-1.5 text-zinc-600" />
                 New Course
@@ -305,6 +319,10 @@ export default function SectionsPage() {
           onOpenAddModal={handleOpenAddSection}
           onOpenEditModal={handleOpenEditSection}
           onMapCourse={handleMapCourseShortcut}
+          onTimeOffSection={(sec) => {
+            setTimeOffSection(sec);
+            setIsTimeOffModalOpen(true);
+          }}
         />
       )}
 
@@ -348,6 +366,36 @@ export default function SectionsPage() {
         editingCourse={editingCourse}
         departments={departments}
         onSaved={fetchData}
+      />
+
+      {/* Section Time-Off & Availability Modal */}
+      <TimeOffModal
+        isOpen={isTimeOffModalOpen}
+        onClose={() => setIsTimeOffModalOpen(false)}
+        entityType="SECTION"
+        entity={
+          timeOffSection
+            ? {
+                id: timeOffSection.id,
+                name: timeOffSection.name,
+                code: timeOffSection.department_code,
+                time_off: timeOffSection.time_off,
+              }
+            : null
+        }
+        onSaved={fetchData}
+        workingDays={5}
+        periodsCount={8}
+      />
+
+      {/* Lessons & Batches Modal */}
+      <LessonsModal
+        isOpen={isLessonsModalOpen}
+        onClose={() => setIsLessonsModalOpen(false)}
+        courses={courses}
+        faculty={faculty}
+        sections={sections}
+        onChanged={fetchData}
       />
     </div>
   );
