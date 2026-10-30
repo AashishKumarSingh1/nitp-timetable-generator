@@ -80,21 +80,6 @@ Places complex university workloads with a **100% placement rate** and zero hard
 
 ---
 
-## 🏛️ Authentic NIT Patna Bihta Campus Dataset (Jan–June 2026)
-
-The system includes pre-loaded data for the **Even Semester (2025–26 / Jan–June 2026)** at NIT Patna Bihta Campus:
-- **18 Real CSE Faculty Members** (with official `@nitp.ac.in` handles):
-  - Dr. Amit Kumar Singh, Prof. M. P. Singh, Dr. J. P. Singh, Dr. Udai Pratap Rao, Dr. Kakali Chatterjee, Dr. Anil Kumar Dudyala, Dr. Dinesh Dash, Dr. Suddhasil De, Dr. Somaraju Suvvari, Dr. Mukesh Kumar, Dr. Bhaskar Mandal, Dr. Ditipriya Sinha, Dr. B. Balaji Naik, Dr. Krishna Kumar Sethi, Dr. Antriksh Goswami, Dr. Santosh Kumar Tripathy, Dr. Abhimanyu Kumar, Dr. Dashrath Mahto.
-- **10 Academic Sections**:
-  - `CSE-I (Sem 4)`, `CSE-II (Sem 4)`, `CSE-III+DD (Sem 4)`
-  - `CSE-I (Sem 6)`, `CSE-II (Sem 6)`, `CSE-III+DD (Sem 6)`
-  - `DD+M.Tech DS (Sem 8/2)`, `DD+M.Tech CS (Sem 8/2)`
-  - `ECE-I (Sem 4)`, `ECE-II (Sem 4)` (ECE Servicing cohorts)
-- **31 Curriculum Courses**: AI, Computer Networks, Automata Theory & Compiler Design, Algorithms, Data Mining, Cloud Computing, Deep Learning, NLP, IoT, Cyber Forensics, etc.
-- **44 Teaching Allocations**: 100% placed and verified with 0 clashes.
-
----
-
 ## 🏗️ Architecture & Technology Stack
 
 | Layer | Technologies |
@@ -194,88 +179,6 @@ nitp-timetable-generator/
    ```
 
 6. Open [http://localhost:3000](http://localhost:3000) (or the active port shown in terminal) in your browser.
-
----
-
-## 🧪 Verification & Acceptance Suite
-
-The project includes an automated end-to-end acceptance test suite that validates the database layer, constraint solver invariants, and anti-cheating seating algorithm.
-
-Run the verification suite:
-```bash
-npm run verify
-```
-
-### Expected Output:
-```text
-🚀 Running Comprehensive Acceptance Verification Suite...
-
-1️⃣ Checking Database Tables & Connections...
-   - Users in DB: 2
-   - Departments: 5
-   - Rooms: 25
-   - Faculty Members: 45
-   - Students for Seating: 36
-   ✅ Pure SQL Database Layer: PASSED
-
-2️⃣ Running Constraint-Satisfaction Timetable Solver...
-   - Solver placed 120 of 120 demands in 74ms
-   - Placement Rate: 100%
-   - Room Collisions: 0
-   - Faculty Collisions: 0
-   ✅ Collision-Free Invariant: 100% VERIFIED
-   - Verifying No-Adjacent-Diff-Sections Invariant for Faculty...
-   - Adjacent Different-Section Faculty Clashes: 0
-   ✅ No-Adjacent-Diff-Sections Invariant: 100% VERIFIED
-   - Verifying Student Workload & Session Invariants...
-   - Student Daily Total Violations (>7h): 0
-   - Student Theory Teaching Violations (>5h): 0
-   - Student Continuous Session Violations (>4h): 0
-   - Lunch Recess Crossing Violations: 0
-   ✅ Student Workload & Session Invariants: 100% VERIFIED
-   - Verifying Student Relief & Anti-Gap Invariants...
-   - Isolated 1-Hour Gaps: 0
-   - Single-Class Days (<2h): 0
-   ✅ Student Relief & Anti-Gap Invariants: 100% VERIFIED
-
-3️⃣ Running Anti-Cheating Seating Interleaving Algorithm...
-   - Total Room Capacity: 36
-   - Allocated Students: 36
-   - Overflow Students: 0
-   - Zero Adjacent Collisions Verified: true
-🎉 ALL SYSTEM ACCEPTANCE CHECKS PASSED WITH 100% SUCCESS!
-```
-
----
-
-## 📦 Production Build
-
-To verify full TypeScript compilation and static/dynamic route generation:
-
-```bash
-npm run build
-```
-
-This compiles all 37 application routes with zero errors using Next.js Turbopack.
-
----
-
-## 📋 API Reference
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/schedule` | `GET` | Fetch all scheduled class sessions with course, room, and faculty details |
-| `/api/schedule` | `POST` | Assign or manually schedule a new class session |
-| `/api/schedule/generate` | `POST` | Trigger the automated constraint-satisfaction solver |
-| `/api/schedule/[id]` | `PUT` | Update an existing scheduled session (with self-collision exclusion) |
-| `/api/schedule/[id]` | `DELETE` | Remove a scheduled session from the grid |
-| `/api/faculty` | `GET`, `POST` | List and create faculty members with department assignment |
-| `/api/faculty/[id]` | `PUT`, `DELETE` | Update faculty details and persist 3-state time-off availability |
-| `/api/rooms` | `GET`, `POST` | List classrooms/labs with capacities and types |
-| `/api/rooms/[id]` | `PUT`, `DELETE` | Update room configuration and time-off availability |
-| `/api/sections` | `GET`, `POST` | List and manage student cohorts and batches |
-| `/api/sections/allocations` | `GET`, `POST` | Manage curriculum course-to-faculty teaching assignments |
-| `/api/seating` | `GET`, `POST` | Generate anti-cheating interleaved exam seating arrangements |
 
 ---
 
