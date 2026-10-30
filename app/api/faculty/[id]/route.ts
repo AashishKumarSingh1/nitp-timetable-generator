@@ -8,34 +8,50 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { code, name, email, department_id, designation, max_daily_periods, max_weekly_periods } = body;
+    const { code, name, email, department_id, designation, max_daily_periods, max_weekly_periods, time_off, color } = body;
 
-    const cleanCode = code.trim().toUpperCase();
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanCode = code ? code.trim().toUpperCase() : undefined;
+    const cleanEmail = email ? email.trim().toLowerCase() : undefined;
 
-    const existingCode = await queryOne('SELECT id FROM faculty WHERE code = ? AND id != ?', [cleanCode, id]);
-    if (existingCode) {
-      return NextResponse.json({ error: `Faculty code ${cleanCode} is already in use` }, { status: 400 });
+    if (cleanCode) {
+      const existingCode = await queryOne('SELECT id FROM faculty WHERE code = ? AND id != ?', [cleanCode, id]);
+      if (existingCode) {
+        return NextResponse.json({ error: `Faculty code ${cleanCode} is already in use` }, { status: 400 });
+      }
     }
 
-    const existingEmail = await queryOne('SELECT id FROM faculty WHERE email = ? AND id != ?', [cleanEmail, id]);
-    if (existingEmail) {
-      return NextResponse.json({ error: `Email ${cleanEmail} is already in use` }, { status: 400 });
+    if (cleanEmail) {
+      const existingEmail = await queryOne('SELECT id FROM faculty WHERE email = ? AND id != ?', [cleanEmail, id]);
+      if (existingEmail) {
+        return NextResponse.json({ error: `Email ${cleanEmail} is already in use` }, { status: 400 });
+      }
     }
+
+    const timeOffStr = typeof time_off === 'object' && time_off !== null ? JSON.stringify(time_off) : time_off;
 
     await execute(
       `UPDATE faculty
-       SET code = ?, name = ?, email = ?, department_id = ?, designation = ?,
-           max_daily_periods = ?, max_weekly_periods = ?, updated_at = CURRENT_TIMESTAMP
+       SET code = COALESCE(?, code),
+           name = COALESCE(?, name),
+           email = COALESCE(?, email),
+           department_id = COALESCE(?, department_id),
+           designation = COALESCE(?, designation),
+           max_daily_periods = COALESCE(?, max_daily_periods),
+           max_weekly_periods = COALESCE(?, max_weekly_periods),
+           time_off = COALESCE(?, time_off),
+           color = COALESCE(?, color),
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [
-        cleanCode,
-        name.trim(),
-        cleanEmail,
-        department_id,
-        designation || 'Assistant Professor',
-        Number(max_daily_periods) || 4,
-        Number(max_weekly_periods) || 18,
+        cleanCode || null,
+        name ? name.trim() : null,
+        cleanEmail || null,
+        department_id || null,
+        designation || null,
+        max_daily_periods !== undefined ? Number(max_daily_periods) : null,
+        max_weekly_periods !== undefined ? Number(max_weekly_periods) : null,
+        timeOffStr !== undefined ? timeOffStr : null,
+        color !== undefined ? color : null,
         id,
       ]
     );

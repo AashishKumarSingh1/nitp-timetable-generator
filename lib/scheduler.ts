@@ -1,4 +1,5 @@
 import { query, transaction } from './db';
+import { calculateSessionSpans, type LessonFormat } from '@/app/schedule/types';
 
 export type DayOfWeek = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY';
 
@@ -20,6 +21,7 @@ export interface ScheduleDemand {
   facultyName: string;
   facultyCode: string;
   sectionName: string;
+  batch?: string;
   span: number; // 1 for theory, 2 for lab
   preferredRoomType?: string;
   periodsPerWeek: number;
@@ -39,6 +41,7 @@ export interface PlacedSession {
   roomCode: string;
   roomName: string;
   sectionName: string;
+  batch?: string;
   isPinned: boolean;
 }
 
@@ -61,6 +64,8 @@ export async function runSchedulerSolver(options: {
   clearUnpinned?: boolean;
   periodsCount?: number;
   lunchAfterPeriod?: number;
+  complexity?: 'normal' | 'large' | 'huge';
+  strictness?: 'draft' | 'relaxed' | 'strict';
 }): Promise<SolverResult> {
   const startTime = Date.now();
   const daysCount = options.daysCount || 5;
@@ -77,10 +82,22 @@ export async function runSchedulerSolver(options: {
     capacity: number;
     is_available: number | boolean;
     department_id?: string | null;
-  }>('SELECT id, code, name, type, capacity, is_available, department_id FROM rooms WHERE is_available = 1 ORDER BY capacity DESC');
+    time_off?: string | null;
+  }>('SELECT id, code, name, type, capacity, is_available, department_id, time_off FROM rooms WHERE is_available = 1 ORDER BY capacity DESC');
 
   if (rooms.length === 0) {
     throw new Error('No active rooms available in the database.');
+  }
+
+  const roomTimeOffMap = new Map<string, Record<string, number[]>>();
+  for (const r of rooms) {
+    if (r.time_off) {
+      try {
+        roomTimeOffMap.set(r.id, JSON.parse(r.time_off));
+      } catch {
+        // ignore
+      }
+    }
   }
 
   // 2. Fetch faculty and their limits
@@ -90,14 +107,23 @@ export async function runSchedulerSolver(options: {
     name: string;
     max_daily_periods: number;
     max_weekly_periods: number;
-  }>('SELECT id, code, name, max_daily_periods, max_weekly_periods FROM faculty');
+    time_off?: string | null;
+  }>('SELECT id, code, name, max_daily_periods, max_weekly_periods, time_off FROM faculty');
 
   const facultyCapMap = new Map<string, { daily: number; weekly: number }>();
+  const facTimeOffMap = new Map<string, Record<string, number[]>>();
   for (const f of facultyList) {
     facultyCapMap.set(f.id, {
       daily: f.max_daily_periods,
       weekly: f.max_weekly_periods,
     });
+    if (f.time_off) {
+      try {
+        facTimeOffMap.set(f.id, JSON.parse(f.time_off));
+      } catch {
+        // ignore
+      }
+    }
   }
 
   // 3. Fetch courses
@@ -108,7 +134,8 @@ export async function runSchedulerSolver(options: {
     department_id: string;
     periods_per_week: number;
     span: number;
-  }>('SELECT id, code, name, department_id, periods_per_week, span FROM courses');
+    lesson_format?: LessonFormat;
+  }>('SELECT id, code, name, department_id, periods_per_week, span, lesson_format FROM courses');
 
   // Match courses to faculty by department
   const facultyByDept = await query<{ id: string; department_id: string; code: string; name: string }>(
@@ -197,13 +224,24 @@ export async function runSchedulerSolver(options: {
   // 5. Generate Demands from Sections, Courses & Teaching Allocations
   const demands: ScheduleDemand[] = [];
 
-  // Fetch sections from database with department codes
-  const dbSections = await query<{ id: string; name: string; department_id: string; semester: number; department_code?: string }>(
-    `SELECT s.id, s.name, s.department_id, s.semester, d.code as department_code
+  // Fetch sections from database with department codes and time_off
+  const dbSections = await query<{ id: string; name: string; department_id: string; semester: number; department_code?: string; time_off?: string | null }>(
+    `SELECT s.id, s.name, s.department_id, s.semester, s.time_off, d.code as department_code
      FROM sections s
      LEFT JOIN departments d ON d.id = s.department_id
      ORDER BY d.code ASC, s.name ASC`
   );
+
+  const secTimeOffMap = new Map<string, Record<string, number[]>>();
+  for (const s of dbSections) {
+    if (s.time_off) {
+      try {
+        secTimeOffMap.set(s.id, JSON.parse(s.time_off));
+      } catch {
+        // ignore
+      }
+    }
+  }
 
   // Fetch all existing teaching assignments
   const teachingAssignments = await query<{
@@ -211,14 +249,16 @@ export async function runSchedulerSolver(options: {
     course_id: string;
     faculty_id: string;
     periods_per_week: number;
+    lesson_format?: string;
     course_code: string;
     course_name: string;
     course_span: number;
+    course_lesson_format?: string;
     faculty_name: string;
     faculty_code: string;
   }>(`
-    SELECT ta.section_id, ta.course_id, ta.faculty_id, ta.periods_per_week,
-           c.code as course_code, c.name as course_name, c.span as course_span,
+    SELECT ta.section_id, ta.course_id, ta.faculty_id, ta.periods_per_week, ta.lesson_format,
+           c.code as course_code, c.name as course_name, c.span as course_span, c.lesson_format as course_lesson_format,
            f.name as faculty_name, f.code as faculty_code
     FROM teaching_assignments ta
     JOIN courses c ON c.id = ta.course_id
@@ -350,8 +390,12 @@ export async function runSchedulerSolver(options: {
         facultyLoadTracker.set(facId, (facultyLoadTracker.get(facId) || 0) + periods);
       }
 
-      const sessionsNeeded = Math.ceil(periods / span);
-      for (let i = 0; i < sessionsNeeded; i++) {
+      const effectiveFormat: LessonFormat = (explicitMapping?.lesson_format && explicitMapping.lesson_format !== 'DEFAULT')
+        ? (explicitMapping.lesson_format as LessonFormat)
+        : ((c.lesson_format as LessonFormat) || (span > 1 ? (span === 3 ? '3_AT_A_TIME' : '2_AT_A_TIME') : '1_AT_A_TIME'));
+
+      const sessionSpans = calculateSessionSpans(periods, effectiveFormat, span);
+      for (const s of sessionSpans) {
         demands.push({
           sectionId: sec.id,
           courseId: c.id,
@@ -361,8 +405,8 @@ export async function runSchedulerSolver(options: {
           facultyName: facName,
           facultyCode: facCode,
           sectionName: sectionDisplayName,
-          span,
-          preferredRoomType: span > 1 ? 'COMPUTER_LAB' : 'LECTURE_HALL',
+          span: s,
+          preferredRoomType: s > 1 ? 'COMPUTER_LAB' : 'LECTURE_HALL',
           periodsPerWeek: periods,
         });
       }
@@ -487,6 +531,15 @@ export async function runSchedulerSolver(options: {
       }
     }
 
+    // 2B. Strict Prohibition of Dead Gap Across Lunch Recess (e.g. classes at P3 and P5 with P4 empty)
+    if (morning.length > 0 && afternoon.length > 0 && lunchAfter > 0) {
+      const lastMorning = morning[morning.length - 1];
+      const firstAfternoon = afternoon[0];
+      if (lastMorning < lunchAfter && firstAfternoon === lunchAfter + 1) {
+        score -= 6000; // Strong penalty for leaving P4 empty between P3 and P5
+      }
+    }
+
     // 3. Minimum 2 Hours Continuous Rule (No isolated 1-hour session)
     // If a session has only 1 class in the morning, or only 1 class in the afternoon:
     if (morning.length === 1 && demand.span === 1) {
@@ -549,6 +602,16 @@ export async function runSchedulerSolver(options: {
       score -= 300;
     }
 
+    // 8. Soft Time-Off Avoidance Penalty (State 2: Conditional/Avoid)
+    const facTO = facTimeOffMap.get(demand.facultyId);
+    if (facTO && facTO[day]) {
+      for (let s = 0; s < demand.span; s++) {
+        if (facTO[day][startPeriod + s - 1] === 2) {
+          score -= 400;
+        }
+      }
+    }
+
     return score;
   };
 
@@ -582,22 +645,25 @@ export async function runSchedulerSolver(options: {
     for (const allowAdjacentDiffSections of [false, true]) {
       if (placed) break;
 
-      for (const maxPerDay of [1, 2]) {
+      for (const maxLabsPerDay of [1, 2]) {
         if (placed) break;
 
-        const candidateSlots: ScoredCandidateSlot[] = [];
+        for (const maxPerDay of [1, 2, 3]) {
+          if (placed) break;
 
-        for (const day of activeDays) {
-          const cDayKey = `course:${demand.courseId}:${demand.sectionName}:${day}`;
-          if ((courseDayCount.get(cDayKey) || 0) >= maxPerDay) {
-            continue;
-          }
+          const candidateSlots: ScoredCandidateSlot[] = [];
 
-          // Balance daily workloads: Max 1 multi-span lab per day for a section
-          const secLabKey = `section:${demand.sectionName}:${day}:labs`;
-          if (demand.span > 1 && (sectionLabDayCount.get(secLabKey) || 0) >= 1) {
-            continue;
-          }
+          for (const day of activeDays) {
+            const cDayKey = `course:${demand.courseId}:${demand.sectionName}:${day}`;
+            if ((courseDayCount.get(cDayKey) || 0) >= maxPerDay) {
+              continue;
+            }
+
+            // Balance daily workloads: Max multi-span lab per day for a section (progressive: 1, fallback to 2)
+            const secLabKey = `section:${demand.sectionName}:${day}:labs`;
+            if (demand.span > 1 && (sectionLabDayCount.get(secLabKey) || 0) >= maxLabsPerDay) {
+              continue;
+            }
 
           const facDayKey = `faculty:${demand.facultyId}:${day}`;
           const currentDaily = facultyPeriodCounts.get(facDayKey) || 0;
@@ -630,10 +696,16 @@ export async function runSchedulerSolver(options: {
           }
 
           for (const startPeriod of possibleStarts) {
-            // Check Section Availability
+            // Check Section Availability (occupied or blocked by section time-off)
             let sectionBusy = false;
+            const secTimeOff = demand.sectionId ? secTimeOffMap.get(demand.sectionId) : undefined;
             for (let s = 0; s < demand.span; s++) {
-              if (occupiedSlots.has(`section:${demand.sectionName}:${day}:${startPeriod + s}`)) {
+              const p = startPeriod + s;
+              if (occupiedSlots.has(`section:${demand.sectionName}:${day}:${p}`)) {
+                sectionBusy = true;
+                break;
+              }
+              if (secTimeOff && secTimeOff[day] && secTimeOff[day][p - 1] === 0) {
                 sectionBusy = true;
                 break;
               }
@@ -658,10 +730,16 @@ export async function runSchedulerSolver(options: {
 
             if (runBefore + demand.span + runAfter > 4) continue;
 
-            // Check Faculty Availability
+            // Check Faculty Availability (occupied or blocked by faculty time-off)
             let facultyBusy = false;
+            const facTimeOff = facTimeOffMap.get(demand.facultyId);
             for (let s = 0; s < demand.span; s++) {
-              if (occupiedSlots.has(`faculty:${demand.facultyId}:${day}:${startPeriod + s}`)) {
+              const p = startPeriod + s;
+              if (occupiedSlots.has(`faculty:${demand.facultyId}:${day}:${p}`)) {
+                facultyBusy = true;
+                break;
+              }
+              if (facTimeOff && facTimeOff[day] && facTimeOff[day][p - 1] === 0) {
                 facultyBusy = true;
                 break;
               }
@@ -687,8 +765,14 @@ export async function runSchedulerSolver(options: {
             // Find best available room for this slot
             for (const room of candidateRooms) {
               let roomBusy = false;
+              const rTimeOff = roomTimeOffMap.get(room.id);
               for (let s = 0; s < demand.span; s++) {
-                if (occupiedSlots.has(`room:${room.id}:${day}:${startPeriod + s}`)) {
+                const p = startPeriod + s;
+                if (occupiedSlots.has(`room:${room.id}:${day}:${p}`)) {
+                  roomBusy = true;
+                  break;
+                }
+                if (rTimeOff && rTimeOff[day] && rTimeOff[day][p - 1] === 0) {
                   roomBusy = true;
                   break;
                 }
@@ -783,6 +867,7 @@ export async function runSchedulerSolver(options: {
         }
       }
     }
+  }
 
     if (!placed) {
       unplacedDemands.push({ demand, reason: failureReason });
@@ -815,15 +900,71 @@ export async function runSchedulerSolver(options: {
           const s2Start = s2.periodIndex;
           const gap = s2Start - s1End - 1;
 
-          // Found a gap inside the same session (e.g. both in morning or both in afternoon)
+          // Found a gap inside the same session (e.g. both in morning or both in afternoon), or after lunch delay
           const inSameMorning = lunchAfter > 0 && s1End <= lunchAfter && s2Start <= lunchAfter;
           const inSameAfternoon = lunchAfter > 0 && s1End > lunchAfter && s2Start > lunchAfter;
           const crossesLunch = lunchAfter > 0 && s1End <= lunchAfter && s2Start > lunchAfter;
+          const hasAfternoonDelay = crossesLunch && s2Start > lunchAfter + 1;
 
-          if (gap >= 1 && (inSameMorning || inSameAfternoon)) {
-            // Option A: Slide s1 forward towards s2 so s1 ends right before s2 starts!
+          if ((gap >= 1 && (inSameMorning || inSameAfternoon)) || hasAfternoonDelay) {
+            // Option B: Slide s2 backward towards s1 so s2 starts right after s1 ends (or right after lunch)
+            // e.g. s1 at P1 (span 1), s2 at P4 (span 1) -> newStart for s2 is P1 + 1 = P2
+            if (!s2.isPinned) {
+              const newStart = crossesLunch ? (lunchAfter + 1) : (s1End + 1);
+              const newEnd = newStart + s2.span - 1;
+
+              let facFree = true;
+              let roomFree = true;
+              let secFree = true;
+
+              for (let p = newStart; p <= newEnd; p++) {
+                if (p >= s2.periodIndex && p <= s2.periodIndex + s2.span - 1) continue;
+                if (occupiedSlots.has(`faculty:${s2.facultyId}:${day}:${p}`)) facFree = false;
+                if (occupiedSlots.has(`room:${s2.roomId}:${day}:${p}`)) roomFree = false;
+                if (occupiedSlots.has(`section:${secName}:${day}:${p}`)) secFree = false;
+              }
+
+              let facAdjacentOk = true;
+              if (newStart - 1 >= 1 && !(lunchAfter > 0 && newStart - 1 === lunchAfter)) {
+                const prevSec = facultySectionSlotMap.get(`faculty:${s2.facultyId}:${day}:${newStart - 1}`);
+                if (prevSec && prevSec !== secName) facAdjacentOk = false;
+              }
+              if (newEnd + 1 <= periodsCount && !(lunchAfter > 0 && newEnd === lunchAfter)) {
+                const nextSec = facultySectionSlotMap.get(`faculty:${s2.facultyId}:${day}:${newEnd + 1}`);
+                if (nextSec && nextSec !== secName) facAdjacentOk = false;
+              }
+
+              const continuousRun = crossesLunch ? s2.span : (s1.span + s2.span);
+              if (facFree && roomFree && secFree && facAdjacentOk && continuousRun <= 4) {
+                for (let p = 0; p < s2.span; p++) {
+                  const oldP = s2.periodIndex + p;
+                  occupiedSlots.delete(`room:${s2.roomId}:${day}:${oldP}`);
+                  occupiedSlots.delete(`faculty:${s2.facultyId}:${day}:${oldP}`);
+                  occupiedSlots.delete(`section:${secName}:${day}:${oldP}`);
+                  facultySectionSlotMap.delete(`faculty:${s2.facultyId}:${day}:${oldP}`);
+                  sectionDayPeriods.get(`${secName}:${day}`)?.delete(oldP);
+                  facultyDayPeriods.get(`${s2.facultyId}:${day}`)?.delete(oldP);
+                }
+
+                s2.periodIndex = newStart;
+
+                for (let p = 0; p < s2.span; p++) {
+                  const newP = s2.periodIndex + p;
+                  occupiedSlots.add(`room:${s2.roomId}:${day}:${newP}`);
+                  occupiedSlots.add(`faculty:${s2.facultyId}:${day}:${newP}`);
+                  occupiedSlots.add(`section:${secName}:${day}:${newP}`);
+                  facultySectionSlotMap.set(`faculty:${s2.facultyId}:${day}:${newP}`, secName);
+                  sectionDayPeriods.get(`${secName}:${day}`)?.add(newP);
+                  facultyDayPeriods.get(`${s2.facultyId}:${day}`)?.add(newP);
+                }
+                changed = true;
+                break;
+              }
+            }
+
+            // Option A (Fallback): Slide s1 forward towards s2 so s1 ends right before s2 starts!
             // e.g. s1 at P1 (span 1), s2 at P4 (span 1) -> newStart for s1 is P4 - 1 = P3
-            if (!s1.isPinned) {
+            if (!s1.isPinned && (inSameMorning || inSameAfternoon)) {
               const newStart = s2.periodIndex - s1.span;
               const newEnd = newStart + s1.span - 1;
 
@@ -873,61 +1014,6 @@ export async function runSchedulerSolver(options: {
                   facultySectionSlotMap.set(`faculty:${s1.facultyId}:${day}:${newP}`, secName);
                   sectionDayPeriods.get(`${secName}:${day}`)?.add(newP);
                   facultyDayPeriods.get(`${s1.facultyId}:${day}`)?.add(newP);
-                }
-                changed = true;
-                break;
-              }
-            }
-
-            // Option B: Slide s2 backward towards s1 so s2 starts right after s1 ends!
-            // e.g. s1 at P1 (span 1), s2 at P4 (span 1) -> newStart for s2 is P1 + 1 = P2
-            if (!s2.isPinned) {
-              const newStart = s1End + 1;
-              const newEnd = newStart + s2.span - 1;
-
-              let facFree = true;
-              let roomFree = true;
-              let secFree = true;
-
-              for (let p = newStart; p <= newEnd; p++) {
-                if (p >= s2.periodIndex && p <= s2.periodIndex + s2.span - 1) continue;
-                if (occupiedSlots.has(`faculty:${s2.facultyId}:${day}:${p}`)) facFree = false;
-                if (occupiedSlots.has(`room:${s2.roomId}:${day}:${p}`)) roomFree = false;
-                if (occupiedSlots.has(`section:${secName}:${day}:${p}`)) secFree = false;
-              }
-
-              let facAdjacentOk = true;
-              if (newStart - 1 >= 1 && !(lunchAfter > 0 && newStart - 1 === lunchAfter)) {
-                const prevSec = facultySectionSlotMap.get(`faculty:${s2.facultyId}:${day}:${newStart - 1}`);
-                if (prevSec && prevSec !== secName) facAdjacentOk = false;
-              }
-              if (newEnd + 1 <= periodsCount && !(lunchAfter > 0 && newEnd === lunchAfter)) {
-                const nextSec = facultySectionSlotMap.get(`faculty:${s2.facultyId}:${day}:${newEnd + 1}`);
-                if (nextSec && nextSec !== secName) facAdjacentOk = false;
-              }
-
-              const continuousRun = s1.span + s2.span;
-              if (facFree && roomFree && secFree && facAdjacentOk && continuousRun <= 4) {
-                for (let p = 0; p < s2.span; p++) {
-                  const oldP = s2.periodIndex + p;
-                  occupiedSlots.delete(`room:${s2.roomId}:${day}:${oldP}`);
-                  occupiedSlots.delete(`faculty:${s2.facultyId}:${day}:${oldP}`);
-                  occupiedSlots.delete(`section:${secName}:${day}:${oldP}`);
-                  facultySectionSlotMap.delete(`faculty:${s2.facultyId}:${day}:${oldP}`);
-                  sectionDayPeriods.get(`${secName}:${day}`)?.delete(oldP);
-                  facultyDayPeriods.get(`${s2.facultyId}:${day}`)?.delete(oldP);
-                }
-
-                s2.periodIndex = newStart;
-
-                for (let p = 0; p < s2.span; p++) {
-                  const newP = s2.periodIndex + p;
-                  occupiedSlots.add(`room:${s2.roomId}:${day}:${newP}`);
-                  occupiedSlots.add(`faculty:${s2.facultyId}:${day}:${newP}`);
-                  occupiedSlots.add(`section:${secName}:${day}:${newP}`);
-                  facultySectionSlotMap.set(`faculty:${s2.facultyId}:${day}:${newP}`, secName);
-                  sectionDayPeriods.get(`${secName}:${day}`)?.add(newP);
-                  facultyDayPeriods.get(`${s2.facultyId}:${day}`)?.add(newP);
                 }
                 changed = true;
                 break;
@@ -1070,7 +1156,7 @@ export async function runSchedulerSolver(options: {
             if (targetTotalHrs < 1 || targetTotalHrs > 4 || targetTheoryHrs >= 5) continue;
 
             const cTargetCount = targetSessions.filter((s) => s.courseId === sessToMove.courseId).length;
-            if (cTargetCount >= 2) continue;
+            if (cTargetCount >= 3) continue;
 
             const facTargetCount = facultyPeriodCounts.get(`faculty:${sessToMove.facultyId}:${targetDay}`) || 0;
             const facLimits = facultyCapMap.get(sessToMove.facultyId) || { daily: 4, weekly: 18 };
@@ -1349,6 +1435,101 @@ export async function runSchedulerSolver(options: {
   }
 
   // =========================================================================
+  // PHASE 2D: Lunch-Boundary Dead-Gap Resolver
+  // Resolves sections with classes ending at P3 and resuming at P5 by moving
+  // P3 session to P4 on another day that already ends at P3 cleanly
+  // =========================================================================
+  for (const sec of sectionsToSchedule) {
+    const secName = (sec.department_code && !sec.name.toUpperCase().startsWith(sec.department_code.toUpperCase()))
+      ? `${sec.department_code} - ${sec.name}`
+      : sec.name;
+
+    for (const day of activeDays) {
+      const daySessions = placedSessions.filter((s) => s.sectionName === secName && s.day === day);
+      const occupied = new Set<number>();
+      for (const s of daySessions) {
+        for (let p = 0; p < s.span; p++) occupied.add(s.periodIndex + p);
+      }
+
+      // Detect dead gap across lunch: has class at P3 and P5, but P4 is empty
+      if (occupied.has(3) && occupied.has(5) && !occupied.has(4)) {
+        const sAt3 = daySessions.find((s) => s.periodIndex === 3 && s.span === 1 && !s.isPinned);
+        if (!sAt3) continue;
+
+        for (const targetDay of activeDays) {
+          if (targetDay === day) continue;
+
+          const targetSessions = placedSessions.filter((s) => s.sectionName === secName && s.day === targetDay);
+          const targetOccupied = new Set<number>();
+          for (const s of targetSessions) {
+            for (let p = 0; p < s.span; p++) targetOccupied.add(s.periodIndex + p);
+          }
+
+          if (targetOccupied.has(3) && !targetOccupied.has(4)) {
+            if (occupiedSlots.has(`faculty:${sAt3.facultyId}:${targetDay}:4`)) continue;
+            if (occupiedSlots.has(`section:${secName}:${targetDay}:4`)) continue;
+
+            const facTargetCount = facultyPeriodCounts.get(`faculty:${sAt3.facultyId}:${targetDay}`) || 0;
+            const facLimits = facultyCapMap.get(sAt3.facultyId) || { daily: 4, weekly: 18 };
+            if (facTargetCount + 1 > facLimits.daily) continue;
+
+            const cCount = targetSessions.filter((s) => s.courseId === sAt3.courseId).length;
+            if (cCount >= 2) continue;
+
+            let facAdjOk = true;
+            const prevSec = facultySectionSlotMap.get(`faculty:${sAt3.facultyId}:${targetDay}:3`);
+            if (prevSec && prevSec !== secName) facAdjOk = false;
+            if (!facAdjOk) continue;
+
+            let chosenRoomId = sAt3.roomId;
+            let chosenRoomCode = sAt3.roomCode;
+            let chosenRoomName = sAt3.roomName;
+
+            if (occupiedSlots.has(`room:${chosenRoomId}:${targetDay}:4`)) {
+              const altRoom = theoryRooms.find((r) => !occupiedSlots.has(`room:${r.id}:${targetDay}:4`));
+              if (altRoom) {
+                chosenRoomId = altRoom.id;
+                chosenRoomCode = altRoom.code;
+                chosenRoomName = altRoom.name;
+              } else {
+                continue;
+              }
+            }
+
+            // Move sAt3 from day:3 to targetDay:4
+            occupiedSlots.delete(`room:${sAt3.roomId}:${day}:3`);
+            occupiedSlots.delete(`faculty:${sAt3.facultyId}:${day}:3`);
+            occupiedSlots.delete(`section:${secName}:${day}:3`);
+            facultySectionSlotMap.delete(`faculty:${sAt3.facultyId}:${day}:3`);
+            sectionDayPeriods.get(`${secName}:${day}`)?.delete(3);
+            facultyDayPeriods.get(`${sAt3.facultyId}:${day}`)?.delete(3);
+
+            facultyPeriodCounts.set(`faculty:${sAt3.facultyId}:${day}`, (facultyPeriodCounts.get(`faculty:${sAt3.facultyId}:${day}`) || 1) - 1);
+            facultyPeriodCounts.set(`faculty:${sAt3.facultyId}:${targetDay}`, (facultyPeriodCounts.get(`faculty:${sAt3.facultyId}:${targetDay}`) || 0) + 1);
+
+            occupiedSlots.add(`room:${chosenRoomId}:${targetDay}:4`);
+            occupiedSlots.add(`faculty:${sAt3.facultyId}:${targetDay}:4`);
+            occupiedSlots.add(`section:${secName}:${targetDay}:4`);
+            facultySectionSlotMap.set(`faculty:${sAt3.facultyId}:${targetDay}:4`, secName);
+            if (!sectionDayPeriods.has(`${secName}:${targetDay}`)) sectionDayPeriods.set(`${secName}:${targetDay}`, new Set<number>());
+            sectionDayPeriods.get(`${secName}:${targetDay}`)!.add(4);
+            if (!facultyDayPeriods.has(`${sAt3.facultyId}:${targetDay}`)) facultyDayPeriods.set(`${sAt3.facultyId}:${targetDay}`, new Set<number>());
+            facultyDayPeriods.get(`${sAt3.facultyId}:${targetDay}`)!.add(4);
+
+            sAt3.day = targetDay;
+            sAt3.periodIndex = 4;
+            sAt3.roomId = chosenRoomId;
+            sAt3.roomCode = chosenRoomCode;
+            sAt3.roomName = chosenRoomName;
+
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // =========================================================================
   // Relief & Compactness Quality Metrics
   // =========================================================================
   let singleHourDaysCount = 0;
@@ -1406,8 +1587,8 @@ export async function runSchedulerSolver(options: {
 
     for (const sess of placedSessions) {
       await tx.execute(
-        `INSERT INTO class_sessions (id, day, period_index, span, course_id, faculty_id, room_id, section_name, is_pinned)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        `INSERT INTO class_sessions (id, day, period_index, span, course_id, faculty_id, room_id, section_name, batch, is_pinned)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
         [
           sess.id,
           sess.day,
@@ -1417,6 +1598,7 @@ export async function runSchedulerSolver(options: {
           sess.facultyId,
           sess.roomId,
           sess.sectionName,
+          sess.batch || 'ALL',
         ]
       );
     }
@@ -1437,5 +1619,92 @@ export async function runSchedulerSolver(options: {
     isolatedGapsCount,
     contiguousBlocksCount,
     reliefDaysCount,
+  };
+}
+
+export async function testTimetableFeasibility(options: { daysCount?: 5 | 6; periodsCount?: number } = {}): Promise<{
+  feasible: boolean;
+  warnings: string[];
+  bottlenecks: string[];
+  metrics: {
+    totalDemandsCount: number;
+    totalFacultyCount: number;
+    totalRoomsCount: number;
+    weeklyTheoryHoursAvailable: number;
+    weeklyLabHoursAvailable: number;
+  };
+}> {
+  const daysCount = options.daysCount || 5;
+  const periodsCount = options.periodsCount || 8;
+  const warnings: string[] = [];
+  const bottlenecks: string[] = [];
+
+  const rooms = await query<{ id: string; code: string; name: string; type: string; capacity: number }>(
+    'SELECT id, code, name, type, capacity FROM rooms WHERE is_available = 1'
+  );
+  const faculty = await query<{ id: string; code: string; name: string; max_weekly_periods: number }>(
+    'SELECT id, code, name, max_weekly_periods FROM faculty'
+  );
+  const assignments = await query<{
+    section_id: string;
+    course_id: string;
+    faculty_id: string;
+    periods_per_week: number;
+    span: number;
+    course_code: string;
+    faculty_name: string;
+  }>(`
+    SELECT ta.section_id, ta.course_id, ta.faculty_id, ta.periods_per_week,
+           c.span, c.code AS course_code, f.name AS faculty_name
+    FROM teaching_assignments ta
+    JOIN courses c ON c.id = ta.course_id
+    JOIN faculty f ON f.id = ta.faculty_id
+  `);
+
+  const theoryRooms = rooms.filter((r) => r.type === 'LECTURE_HALL' || r.type === 'CLASSROOM' || r.type === 'SEMINAR_HALL');
+  const labRooms = rooms.filter((r) => r.type === 'COMPUTER_LAB');
+
+  const weeklyTheoryHoursAvailable = theoryRooms.length * daysCount * periodsCount;
+  const weeklyLabHoursAvailable = labRooms.length * daysCount * periodsCount;
+
+  let totalDemandedTheory = 0;
+  let totalDemandedLab = 0;
+  const facultyAssigned = new Map<string, number>();
+
+  for (const a of assignments) {
+    const hrs = Number(a.periods_per_week) || 3;
+    if (a.span > 1) {
+      totalDemandedLab += hrs;
+    } else {
+      totalDemandedTheory += hrs;
+    }
+    facultyAssigned.set(a.faculty_id, (facultyAssigned.get(a.faculty_id) || 0) + hrs);
+  }
+
+  if (totalDemandedTheory > weeklyTheoryHoursAvailable) {
+    bottlenecks.push(`Theory capacity deficit: Demanded ${totalDemandedTheory}h > Available ${weeklyTheoryHoursAvailable}h.`);
+  }
+  if (totalDemandedLab > weeklyLabHoursAvailable) {
+    bottlenecks.push(`Lab capacity deficit: Demanded ${totalDemandedLab}h > Available ${weeklyLabHoursAvailable}h.`);
+  }
+
+  for (const f of faculty) {
+    const assigned = facultyAssigned.get(f.id) || 0;
+    if (assigned > f.max_weekly_periods) {
+      warnings.push(`Faculty ${f.name} assigned ${assigned}h (exceeds weekly limit of ${f.max_weekly_periods}h).`);
+    }
+  }
+
+  return {
+    feasible: bottlenecks.length === 0,
+    warnings,
+    bottlenecks,
+    metrics: {
+      totalDemandsCount: assignments.length,
+      totalFacultyCount: faculty.length,
+      totalRoomsCount: rooms.length,
+      weeklyTheoryHoursAvailable,
+      weeklyLabHoursAvailable,
+    },
   };
 }

@@ -44,6 +44,9 @@ import {
   type PeriodSlot,
   type TimetableTimingConfig,
   type CourseTheme,
+  type StudioPerspective,
+  type GridDensity,
+  type UnplacedDemand,
   NITP_OFFICIAL_PERIODS,
   STANDARD_8_PERIODS,
   DEFAULT_TIMING_CONFIG,
@@ -54,7 +57,16 @@ import {
   getCourseTheme,
   isLabSession,
   mergeAdjacentSessions,
+  isSameSection,
+  calculateSessionSpans,
+  type LessonFormat,
 } from './types';
+
+import { TimetableRibbon } from './components/TimetableRibbon';
+import { MasterGrid } from './components/MasterGrid';
+import { UnplacedLessonsTray } from './components/UnplacedLessonsTray';
+import { GeneratorModal } from './components/GeneratorModal';
+import { VerificationModal } from './components/VerificationModal';
 
 // Re-export for external consumers
 export type {
@@ -86,6 +98,18 @@ export default function SchedulePage() {
 
   // Search query state
   const [searchQuery, setSearchQuery] = useState('');
+
+  // aPn Studio Grid vs Single Cohort Mode
+  const [activeViewMode, setActiveViewMode] = useState<'STUDIO' | 'SINGLE'>('STUDIO');
+  const [studioPerspective, setStudioPerspective] = useState<StudioPerspective>('SECTIONS');
+  const [gridDensity, setGridDensity] = useState<GridDensity>('normal');
+  const [selectedDemand, setSelectedDemand] = useState<UnplacedDemand | null>(null);
+  const [allocations, setAllocations] = useState<any[]>([]);
+  const [rawSections, setRawSections] = useState<{ id: string; name: string }[]>([]);
+
+  // aPn Management Modals
+  const [isGeneratorModalOpen, setIsGeneratorModalOpen] = useState(false);
+  const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
 
   // Filter Selection
   const [filterMode, setFilterMode] = useState<'SECTION' | 'CLASSROOM' | 'FACULTY'>('SECTION');
@@ -142,7 +166,7 @@ export default function SchedulePage() {
     const yyyy = today.getFullYear();
     return `${dd}-${mm}-${yyyy}`;
   });
-  const [exportFooterTag, setExportFooterTag] = useState('aSc Timetables');
+  const [exportFooterTag, setExportFooterTag] = useState('aPn Timetables');
 
   // Load timing configuration from localStorage
   useEffect(() => {
@@ -218,6 +242,7 @@ export default function SchedulePage() {
           return a.localeCompare(b);
         });
         setSectionsList(secNames);
+        setRawSections(sData.sections.map((s: any) => ({ id: s.id, name: s.name })));
         setSelectedSection((prev) => (secNames.includes(prev) ? prev : secNames[0]));
         if (!exportSpecificSection) {
           setExportSpecificSection(secNames[0]);
@@ -225,6 +250,237 @@ export default function SchedulePage() {
       }
     } catch {
       // silent
+    }
+  };
+
+  const fetchAllocations = async () => {
+    try {
+      const res = await fetch('/api/sections/allocations');
+      const data = await res.json();
+      if (res.ok && data.allocations) {
+        setAllocations(data.allocations);
+      }
+    } catch {
+      // silent
+    }
+  };
+
+  const unplacedDemands = useMemo(() => {
+    const result: UnplacedDemand[] = [];
+    if (allocations.length === 0) return result;
+
+    for (const alloc of allocations) {
+      const periodsPerWk = Number(alloc.periods_per_week) || 3;
+      const span = alloc.course_span || 1;
+      const effectiveFormat: LessonFormat = (alloc.lesson_format && alloc.lesson_format !== 'DEFAULT')
+        ? (alloc.lesson_format as LessonFormat)
+        : ((alloc.course_lesson_format as LessonFormat) || (span > 1 ? (span === 3 ? '3_AT_A_TIME' : '2_AT_A_TIME') : '1_AT_A_TIME'));
+
+      const requiredSpans = calculateSessionSpans(periodsPerWk, effectiveFormat, span);
+
+      const fullSectionName = alloc.department_code && !alloc.section_name.toUpperCase().startsWith(alloc.department_code.toUpperCase())
+        ? `${alloc.department_code} - ${alloc.section_name}`
+        : alloc.section_name;
+
+      // Count how many placed sessions match this allocation
+      const placedMatching = allSessions.filter((s) => {
+        const matchCourse = s.course_id === alloc.course_id;
+        const matchFac = s.faculty_id === alloc.faculty_id;
+        const matchSec = isSameSection(s.section_name, fullSectionName);
+        const matchBatch = !alloc.batch || alloc.batch === 'ALL' || s.batch === alloc.batch;
+        return matchCourse && matchFac && matchSec && matchBatch;
+      });
+
+      // Match placed sessions against requiredSpans (exact span match first, then fallback)
+      const remainingSpans = [...requiredSpans];
+      for (const ps of placedMatching) {
+        const exactIdx = remainingSpans.indexOf(ps.span);
+        if (exactIdx !== -1) {
+          remainingSpans.splice(exactIdx, 1);
+        } else if (remainingSpans.length > 0) {
+          remainingSpans.splice(0, 1);
+        }
+      }
+
+      for (let i = 0; i < remainingSpans.length; i++) {
+        const s = remainingSpans[i];
+        result.push({
+          id: `unplaced-${alloc.id}-${s}-${i}`,
+          courseId: alloc.course_id,
+          courseCode: alloc.course_code,
+          courseName: alloc.course_name,
+          facultyId: alloc.faculty_id,
+          facultyName: alloc.faculty_name,
+          facultyCode: alloc.faculty_code,
+          sectionName: fullSectionName,
+          batch: alloc.batch || 'ALL',
+          span: s,
+          periodsPerWeek: periodsPerWk,
+          lessonFormat: effectiveFormat,
+          lesson_format: effectiveFormat,
+        });
+      }
+    }
+    return result;
+  }, [allocations, allSessions]);
+
+  const handlePlaceDemand = async (day: string, periodIndex: number, rowEntityId: string) => {
+    if (!selectedDemand) return;
+    try {
+      const sectionName = selectedDemand.sectionName;
+      const facultyId = selectedDemand.facultyId;
+      const courseId = selectedDemand.courseId;
+      const span = selectedDemand.span || 1;
+      const batch = selectedDemand.batch || 'ALL';
+
+      let chosenRoomId = '';
+      if (studioPerspective === 'ROOMS') {
+        chosenRoomId = rowEntityId;
+      } else {
+        const candidateList = span > 1
+          ? rooms.filter((r) => r.type === 'COMPUTER_LAB')
+          : rooms.filter((r) => r.type !== 'COMPUTER_LAB');
+        const listToSearch = candidateList.length > 0 ? candidateList : rooms;
+
+        for (const rm of listToSearch) {
+          const isFree = !allSessions.some(
+            (s) =>
+              s.room_id === rm.id &&
+              s.day === day &&
+              Math.max(periodIndex, s.period_index) <= Math.min(periodIndex + span - 1, s.period_index + (s.span || 1) - 1)
+          );
+          if (isFree) {
+            chosenRoomId = rm.id;
+            break;
+          }
+        }
+        if (!chosenRoomId && rooms.length > 0) {
+          chosenRoomId = rooms[0].id;
+        }
+      }
+
+      if (!chosenRoomId) {
+        toast.error('No suitable classroom found for this period.');
+        return;
+      }
+
+      const res = await fetch('/api/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          course_id: courseId,
+          faculty_id: facultyId,
+          room_id: chosenRoomId,
+          section_name: sectionName,
+          batch,
+          day,
+          period_index: periodIndex,
+          span,
+          is_pinned: 1,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to place session.');
+        return;
+      }
+
+      toast.success(`Placed ${selectedDemand.courseCode} on ${day} Period ${periodIndex}`);
+      setSelectedDemand(null);
+      await fetchSchedule();
+      await fetchAllSessionsForExport();
+    } catch (err: any) {
+      toast.error(err.message || 'Error placing session');
+    }
+  };
+
+  const handleTogglePinSession = async (session: ClassSession) => {
+    try {
+      const res = await fetch(`/api/schedule/${session.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPinned: !session.is_pinned }),
+      });
+      if (res.ok) {
+        toast.success(session.is_pinned ? 'Session unpinned' : 'Session pinned 📌');
+        fetchSchedule();
+        fetchAllSessionsForExport();
+      }
+    } catch {
+      toast.error('Failed to toggle pin state');
+    }
+  };
+
+  const handleDeleteSessionById = async (sessionId: string) => {
+    try {
+      const res = await fetch(`/api/schedule/${sessionId}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success('Session removed and returned to holding tray');
+        fetchSchedule();
+        fetchAllSessionsForExport();
+      }
+    } catch {
+      toast.error('Failed to delete session');
+    }
+  };
+
+  const handleRunTestTimetable = async () => {
+    try {
+      const res = await fetch('/api/schedule/generate?action=test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ daysCount: workingDays, periodsCount: timingConfig.periods.length }),
+      });
+      const data = await res.json();
+      if (res.ok && data.testResult) {
+        if (data.testResult.bottlenecks?.length > 0) {
+          toast.error(`Test Warning: ${data.testResult.bottlenecks[0]}`);
+        } else {
+          toast.success('Pre-Flight Test: Feasible! No room or teacher bottlenecks detected.');
+        }
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Test failed');
+    }
+  };
+
+  const handleGenerateWithOptions = async (opts: {
+    complexity: 'normal' | 'large' | 'huge';
+    strictness: 'draft' | 'relaxed' | 'strict';
+    scope: 'all' | 'unplaced';
+    clearUnpinned: boolean;
+    workingDays: 5 | 6;
+  }) => {
+    try {
+      setGenerating(true);
+      const res = await fetch('/api/schedule/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          daysCount: opts.workingDays,
+          clearUnpinned: opts.clearUnpinned,
+          complexity: opts.complexity,
+          strictness: opts.strictness,
+          periodsCount: timingConfig.periods.length,
+          lunchAfterPeriod: timingConfig.hasLunchBreak ? timingConfig.lunchAfterPeriod : 0,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Generation failed');
+
+      setSolverResult(data.result);
+      toast.success(
+        `Generated Timetable! ${data.result.placedCount} sessions placed (${data.result.placementRate}%)`
+      );
+      await fetchSchedule();
+      await fetchAllSessionsForExport();
+      await fetchAllocations();
+    } catch (err: any) {
+      toast.error(err.message || 'Generation failed');
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -268,6 +524,7 @@ export default function SchedulePage() {
   useEffect(() => {
     fetchOptions();
     fetchAllSessionsForExport();
+    fetchAllocations();
   }, []);
 
   useEffect(() => {
@@ -378,20 +635,49 @@ export default function SchedulePage() {
     }
   };
 
-  const handleOpenCreateModal = (day?: ClassSession['day'], period?: number) => {
+  const handleOpenCreateModal = (
+    day?: ClassSession['day'],
+    period?: number,
+    rowContext?: { id: string; name: string; type?: string }
+  ) => {
     setEditingSession(null);
     setFormCourseId(courses[0]?.id || '');
-    if (filterMode === 'FACULTY' && selectedFaculty) {
-      setFormFacultyId(selectedFaculty);
+
+    if (rowContext) {
+      if (studioPerspective === 'FACULTY' || rowContext.type === 'FACULTY') {
+        const fac = faculty.find((f) => f.id === rowContext.id || f.name === rowContext.name);
+        setFormFacultyId(fac ? fac.id : rowContext.id);
+        setFormRoomId(rooms[0]?.id || '');
+        setFormSectionName(sections[0] || 'Section A');
+      } else if (studioPerspective === 'ROOMS' || rowContext.type === 'ROOMS') {
+        const rm = rooms.find(
+          (r) => r.id === rowContext.id || r.code === rowContext.id || r.name === rowContext.name
+        );
+        setFormRoomId(rm ? rm.id : rowContext.id);
+        setFormFacultyId(faculty[0]?.id || '');
+        setFormSectionName(sections[0] || 'Section A');
+      } else {
+        const matchedSec = sections.find(
+          (s) => isSameSection(s, rowContext.id) || isSameSection(s, rowContext.name) || s === rowContext.name
+        );
+        setFormSectionName(matchedSec || rowContext.name || rowContext.id);
+        setFormFacultyId(faculty[0]?.id || '');
+        setFormRoomId(rooms[0]?.id || '');
+      }
     } else {
-      setFormFacultyId(faculty[0]?.id || '');
+      if (filterMode === 'FACULTY' && selectedFaculty) {
+        setFormFacultyId(selectedFaculty);
+      } else {
+        setFormFacultyId(faculty[0]?.id || '');
+      }
+      if (filterMode === 'CLASSROOM' && selectedRoom) {
+        setFormRoomId(selectedRoom);
+      } else {
+        setFormRoomId(rooms[0]?.id || '');
+      }
+      setFormSectionName(filterMode === 'SECTION' ? selectedSection : (sections[0] || 'Section A'));
     }
-    if (filterMode === 'CLASSROOM' && selectedRoom) {
-      setFormRoomId(selectedRoom);
-    } else {
-      setFormRoomId(rooms[0]?.id || '');
-    }
-    setFormSectionName(filterMode === 'SECTION' ? selectedSection : (sections[0] || 'Section A'));
+
     setFormDay(day || 'MONDAY');
     setFormPeriodIndex(period || 1);
     setFormSpan(1);
@@ -436,8 +722,11 @@ export default function SchedulePage() {
       return;
     }
 
-    const conflict = sessions.find((s) => {
-      if (editingSession && s.id === editingSession.id) return false;
+    const conflict = allSessions.find((s) => {
+      if (editingSession) {
+        if (s.id === editingSession.id) return false;
+        if (editingSession.mergedIds?.includes(s.id)) return false;
+      }
       if (s.day !== formDay) return false;
       const sStart = s.period_index;
       const sEnd = s.period_index + s.span - 1;
@@ -446,7 +735,7 @@ export default function SchedulePage() {
 
       if (s.room_id === formRoomId) return true;
       if (s.faculty_id === formFacultyId) return true;
-      if (s.section_name === formSectionName) return true;
+      if (isSameSection(s.section_name, formSectionName)) return true;
       return false;
     });
 
@@ -459,7 +748,7 @@ export default function SchedulePage() {
         setManualConflictNotice(
           `⚠️ Faculty conflict: ${conflict.faculty_name} is already teaching ${conflict.course_code} at Period ${conflict.period_index}.`
         );
-      } else if (conflict.section_name === formSectionName) {
+      } else if (isSameSection(conflict.section_name, formSectionName)) {
         setManualConflictNotice(
           `⚠️ Section conflict: ${conflict.section_name} already has ${conflict.course_code} scheduled at Period ${conflict.period_index}.`
         );
@@ -475,7 +764,7 @@ export default function SchedulePage() {
     formRoomId,
     formFacultyId,
     formSectionName,
-    sessions,
+    allSessions,
     editingSession,
     timingConfig,
   ]);
@@ -499,10 +788,14 @@ export default function SchedulePage() {
 
       let res;
       if (editingSession) {
+        const excludeIds =
+          editingSession.mergedIds && editingSession.mergedIds.length > 0
+            ? editingSession.mergedIds
+            : [editingSession.id];
         res = await fetch(`/api/schedule/${editingSession.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ ...payload, exclude_ids: excludeIds }),
         });
         if (editingSession.mergedIds && editingSession.mergedIds.length > 1) {
           const extraIds = editingSession.mergedIds.filter((id) => id !== editingSession.id);
@@ -707,7 +1000,7 @@ export default function SchedulePage() {
   // Generates razor-sharp, publication-ready vector PDFs directly to device.
   // 100% immune to html2canvas CSS Color 4 (lab / oklch) parser errors.
   // =========================================================================
-  const renderAscSheetToPdf = (
+  const renderApnSheetToPdf = (
     pdf: any,
     sheet: {
       title: string;
@@ -916,7 +1209,7 @@ export default function SchedulePage() {
       });
     });
 
-    // 8. Footer line (Timetable generated: ... | aSc Timetables)
+    // 8. Footer line (Timetable generated: ... | aPn Timetables)
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(8.5);
     pdf.setTextColor(40, 40, 40);
@@ -951,7 +1244,7 @@ export default function SchedulePage() {
         if (i > 0) {
           pdf.addPage('a4', 'landscape');
         }
-        renderAscSheetToPdf(pdf, exportSheets[i], {
+        renderApnSheetToPdf(pdf, exportSheets[i], {
           instituteHeader: exportInstituteHeader,
           footerDate: exportFooterDate,
           footerTag: exportFooterTag,
@@ -985,7 +1278,7 @@ export default function SchedulePage() {
 
   // Isolated Print Handler: Optional browser print fallback
   const handlePrintIsolated = () => {
-    const printContainer = document.getElementById('asc-official-print-container');
+    const printContainer = document.getElementById('apn-official-print-container');
     if (!printContainer) {
       window.print();
       return;
@@ -993,10 +1286,10 @@ export default function SchedulePage() {
 
     const contentHtml = printContainer.innerHTML;
 
-    let iframe = document.getElementById('asc-print-isolated-iframe') as HTMLIFrameElement | null;
+    let iframe = document.getElementById('apn-print-isolated-iframe') as HTMLIFrameElement | null;
     if (!iframe) {
       iframe = document.createElement('iframe');
-      iframe.id = 'asc-print-isolated-iframe';
+      iframe.id = 'apn-print-isolated-iframe';
       iframe.style.position = 'fixed';
       iframe.style.right = '0';
       iframe.style.bottom = '0';
@@ -1035,7 +1328,7 @@ export default function SchedulePage() {
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
             }
-            .asc-timetable-sheet {
+            .apn-timetable-sheet {
               display: flex;
               flex-direction: column;
               justify-content: space-between;
@@ -1048,17 +1341,17 @@ export default function SchedulePage() {
               padding: 3mm 0;
               background: #ffffff !important;
             }
-            .asc-timetable-sheet:last-child {
+            .apn-timetable-sheet:last-child {
               page-break-after: auto;
               break-after: auto;
             }
-            .asc-table {
+            .apn-table {
               width: 100%;
               border-collapse: collapse;
               border: 2px solid #000000;
               table-layout: fixed;
             }
-            .asc-table th, .asc-table td {
+            .apn-table th, .apn-table td {
               border: 1.5px solid #000000;
               color: #000000;
             }
@@ -1092,7 +1385,7 @@ export default function SchedulePage() {
 
   // Open in a fresh standalone clean window with Direct PDF Download
   const handleOpenInNewWindow = () => {
-    const printContainer = document.getElementById('asc-official-print-container');
+    const printContainer = document.getElementById('apn-official-print-container');
     if (!printContainer) return;
 
     const win = window.open('', '_blank');
@@ -1149,7 +1442,7 @@ export default function SchedulePage() {
               transition: background 0.15s;
             }
             .btn-download:hover { background: #166534; }
-            .asc-timetable-sheet {
+            .apn-timetable-sheet {
               background: #ffffff;
               padding: 16px;
               margin-bottom: 24px;
@@ -1162,20 +1455,20 @@ export default function SchedulePage() {
               flex-direction: column;
               justify-content: space-between;
             }
-            .asc-table {
+            .apn-table {
               width: 100%;
               border-collapse: collapse;
               border: 2px solid #000000;
               table-layout: fixed;
             }
-            .asc-table th, .asc-table td {
+            .apn-table th, .apn-table td {
               border: 1.5px solid #000000;
               color: #000000;
             }
             @media print {
               body { background: #ffffff !important; padding: 0 !important; }
               .print-bar { display: none !important; }
-              .asc-timetable-sheet { border: none !important; box-shadow: none !important; margin: 0 !important; padding: 2mm 0 !important; }
+              .apn-timetable-sheet { border: none !important; box-shadow: none !important; margin: 0 !important; padding: 2mm 0 !important; }
             }
           </style>
           <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -1406,8 +1699,64 @@ export default function SchedulePage() {
 
   return (
     <div className="space-y-6">
-      {/* Top Header - No-print in print layout */}
-      <div className="no-print flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      {/* aPn Timetable Ribbon */}
+      <div className="no-print">
+        <TimetableRibbon
+          perspective={studioPerspective}
+          onPerspectiveChange={setStudioPerspective}
+          density={gridDensity}
+          onDensityChange={setGridDensity}
+          onTestTimetable={handleRunTestTimetable}
+          onOpenGenerateModal={() => setIsGeneratorModalOpen(true)}
+          onOpenVerificationModal={() => setIsVerificationModalOpen(true)}
+          onPrintPreview={handleOpenExportModal}
+          onRefresh={() => {
+            fetchSchedule();
+            fetchAllSessionsForExport();
+            fetchAllocations();
+          }}
+          isGenerating={generating}
+          activeViewMode={activeViewMode}
+          onToggleViewMode={setActiveViewMode}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+        />
+      </div>
+
+      {activeViewMode === 'STUDIO' ? (
+        <div className="space-y-4">
+          <MasterGrid
+            sessions={allSessions}
+            perspective={studioPerspective}
+            density={gridDensity}
+            workingDays={workingDays}
+            periods={timingConfig.periods}
+            hasLunchBreak={timingConfig.hasLunchBreak}
+            lunchAfterPeriod={timingConfig.lunchAfterPeriod}
+            lunchLabel={timingConfig.lunchLabel}
+            selectedDemand={selectedDemand}
+            onPlaceDemand={handlePlaceDemand}
+            onEditSession={(sess) => handleOpenEditModal(sess)}
+            onEmptyCellClick={(day, periodIdx, rowEntity) => handleOpenCreateModal(day as any, periodIdx, rowEntity)}
+            onTogglePinSession={handleTogglePinSession}
+            onDeleteSession={handleDeleteSessionById}
+            sections={sections}
+            facultyList={faculty}
+            roomsList={rooms}
+            searchQuery={searchQuery}
+          />
+
+          <UnplacedLessonsTray
+            unplacedDemands={unplacedDemands}
+            selectedDemand={selectedDemand}
+            onSelectDemand={setSelectedDemand}
+            isGenerating={generating}
+          />
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {/* Top Header - No-print in print layout */}
+          <div className="no-print flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="shrink-0">
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 flex items-center gap-2.5 whitespace-nowrap">
             <Calendar className="w-6 h-6 text-red-700" />
@@ -1430,7 +1779,7 @@ export default function SchedulePage() {
             Timing & Lunch Settings
           </Button>
 
-          {/* Official PDF / aSc Timetable Export Center */}
+          {/* Official PDF / aPn Timetable Export Center */}
           <Button
             size="sm"
             onClick={handleOpenExportModal}
@@ -1789,13 +2138,15 @@ export default function SchedulePage() {
           </div>
         </CardContent>
       </Card>
+    </div>
+  )}
 
       {/* ========================================================================= */}
       {/* PRINT-ONLY OFFICIAL CONTAINER: Multi-Page Landscape PDF Booklet */}
       {/* Strictly isolated in globals.css so only this renders when printed */}
       {/* ========================================================================= */}
       <div
-        id="asc-official-print-container"
+        id="apn-official-print-container"
         className="no-print"
         style={{
           position: 'fixed',
@@ -1807,9 +2158,9 @@ export default function SchedulePage() {
           pointerEvents: 'none',
         }}
       >
-        <div id="asc-export-sheets-wrapper">
+        <div id="apn-export-sheets-wrapper">
           {exportSheets.map((sheet, idx) => (
-            <AscTimetableSheet
+            <ApnTimetableSheet
               key={`${sheet.type}-${sheet.title}-${idx}`}
               title={sheet.title}
               type={sheet.type}
@@ -2087,12 +2438,12 @@ export default function SchedulePage() {
       </Modal>
 
       {/* ========================================================================= */}
-      {/* MODAL 2: Official Institutional Timetable Export Center (NIT Patna / aSc) */}
+      {/* MODAL 2: Official Institutional Timetable Export Center (NIT Patna / aPn) */}
       {/* ========================================================================= */}
       <Modal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
-        title="Official Timetable Export Center (NIT Patna / aSc Format)"
+        title="Official Timetable Export Center (NIT Patna / aPn Format)"
         description="Generate scan-accurate, publication-ready PDF booklets with exact high-contrast grids"
         maxWidth="2xl"
       >
@@ -2175,7 +2526,7 @@ export default function SchedulePage() {
 
             {/* Custom Header & Footer text inputs */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-zinc-200">
-              <div className="md:col-span-2">
+              <div>
                 <Input
                   label="Institute Header Title"
                   value={exportInstituteHeader}
@@ -2187,6 +2538,13 @@ export default function SchedulePage() {
                   label="Generated Date Tag"
                   value={exportFooterDate}
                   onChange={(e) => setExportFooterDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <Input
+                  label="Watermark / Footer Tag"
+                  value={exportFooterTag}
+                  onChange={(e) => setExportFooterTag(e.target.value)}
                 />
               </div>
             </div>
@@ -2208,7 +2566,7 @@ export default function SchedulePage() {
             <div className="max-h-[360px] overflow-auto border-2 border-zinc-900 rounded-xl bg-white p-3 shadow-inner">
               {exportSheets.slice(0, 2).map((sheet, idx) => (
                 <div key={idx} className="mb-6 last:mb-0">
-                  <AscTimetableSheet
+                  <ApnTimetableSheet
                     title={sheet.title}
                     type={sheet.type}
                     instituteHeader={exportInstituteHeader}
@@ -2442,15 +2800,34 @@ export default function SchedulePage() {
           </div>
         </form>
       </Modal>
+
+      {/* aPn Generator Modal */}
+      <GeneratorModal
+        isOpen={isGeneratorModalOpen}
+        onClose={() => setIsGeneratorModalOpen(false)}
+        onGenerate={handleGenerateWithOptions}
+        onTest={handleRunTestTimetable}
+        workingDays={workingDays}
+        isGenerating={generating}
+      />
+
+      {/* aPn Verification Diagnostics Modal */}
+      <VerificationModal
+        isOpen={isVerificationModalOpen}
+        onClose={() => setIsVerificationModalOpen(false)}
+        sessions={allSessions}
+        facultyList={faculty}
+        roomsList={rooms}
+      />
     </div>
   );
 }
 
 // =========================================================================
-// Official Scan-Accurate NIT Patna / aSc Timetable Sheet Component
+// Official Scan-Accurate NIT Patna / aPn Timetable Sheet Component
 // Exact recreation of the scanned image attachments
 // =========================================================================
-function AscTimetableSheet({
+function ApnTimetableSheet({
   title,
   type,
   instituteHeader,
@@ -2485,7 +2862,7 @@ function AscTimetableSheet({
 
   return (
     <div
-      className={`asc-timetable-sheet bg-white text-black font-sans ${
+      className={`apn-timetable-sheet bg-white text-black font-sans ${
         isPreview ? 'p-2' : 'p-4'
       }`}
       style={{
@@ -2510,7 +2887,7 @@ function AscTimetableSheet({
 
       {/* 3. The Official High-Contrast Black Table Grid */}
       <table
-        className="asc-table w-full border-collapse text-black"
+        className="apn-table w-full border-collapse text-black"
         style={{
           border: '2px solid #000000',
           tableLayout: 'fixed',
@@ -2641,8 +3018,8 @@ function AscTimetableSheet({
         </tbody>
       </table>
 
-      {/* 4. Footer line: Timetable generated: 24-09-2026 | aSc Timetables */}
-      <footer className="asc-footer mt-1 flex items-center justify-between text-[10px] text-zinc-900 px-0.5">
+      {/* 4. Footer line: Timetable generated: 24-09-2026 | aPn Timetables */}
+      <footer className="apn-footer mt-1 flex items-center justify-between text-[10px] text-zinc-900 px-0.5">
         <span>Timetable generated:{footerDate}</span>
         <span>{footerTag}</span>
       </footer>

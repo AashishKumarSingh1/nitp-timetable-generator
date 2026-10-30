@@ -46,20 +46,31 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { name, department_id, semester = 3, strength = 60, academic_year = '2026-27' } = body;
+    const { name, department_id, semester, strength, academic_year, time_off, color } = body;
 
-    if (!name || !department_id) {
-      return NextResponse.json(
-        { error: 'Section name and department are required' },
-        { status: 400 }
-      );
-    }
+    const timeOffStr = typeof time_off === 'object' && time_off !== null ? JSON.stringify(time_off) : time_off;
 
     await execute(
       `UPDATE sections
-       SET name = ?, department_id = ?, semester = ?, strength = ?, academic_year = ?, updated_at = CURRENT_TIMESTAMP
+       SET name = COALESCE(?, name),
+           department_id = COALESCE(?, department_id),
+           semester = COALESCE(?, semester),
+           strength = COALESCE(?, strength),
+           academic_year = COALESCE(?, academic_year),
+           time_off = COALESCE(?, time_off),
+           color = COALESCE(?, color),
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [name.trim(), department_id, Number(semester), Number(strength), academic_year.trim(), id]
+      [
+        name ? name.trim() : null,
+        department_id || null,
+        semester !== undefined ? Number(semester) : null,
+        strength !== undefined ? Number(strength) : null,
+        academic_year ? academic_year.trim() : null,
+        timeOffStr !== undefined ? timeOffStr : null,
+        color !== undefined ? color : null,
+        id,
+      ]
     );
 
     return NextResponse.json({ success: true });

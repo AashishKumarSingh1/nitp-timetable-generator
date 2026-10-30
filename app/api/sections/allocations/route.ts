@@ -11,7 +11,8 @@ export async function GET(req: NextRequest) {
     const facultyId = searchParams.get('facultyId');
 
     let sql = `
-      SELECT ta.id, ta.section_id, ta.course_id, ta.faculty_id, ta.periods_per_week, ta.created_at,
+      SELECT ta.id, ta.section_id, ta.course_id, ta.faculty_id, ta.periods_per_week, ta.batch, ta.created_at,
+             ta.lesson_format, c.lesson_format AS course_lesson_format,
              s.name AS section_name, s.semester, s.strength AS section_strength,
              d.id AS department_id, d.name AS department_name, d.code AS department_code,
              c.code AS course_code, c.name AS course_name, c.span AS course_span,
@@ -84,6 +85,7 @@ export async function POST(req: NextRequest) {
       course_id,
       faculty_id,
       periods_per_week = 3,
+      lesson_format = 'DEFAULT',
       max_batches_per_teacher, // optional limit: number of batches this teacher can teach this subject
       auto_balance = true,
     } = body;
@@ -96,6 +98,7 @@ export async function POST(req: NextRequest) {
     }
 
     const periods = Number(periods_per_week) || 3;
+    const lessonFormat = lesson_format ? String(lesson_format).trim() : 'DEFAULT';
     const maxBatches = max_batches_per_teacher ? Number(max_batches_per_teacher) : Infinity;
 
     // Fetch primary faculty info
@@ -154,14 +157,14 @@ export async function POST(req: NextRequest) {
 
           if (existing) {
             await execute(
-              'UPDATE teaching_assignments SET faculty_id = ?, periods_per_week = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-              [faculty_id, periods, existing.id]
+              'UPDATE teaching_assignments SET faculty_id = ?, periods_per_week = ?, lesson_format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+              [faculty_id, periods, lessonFormat, existing.id]
             );
           } else {
             const id = crypto.randomUUID();
             await execute(
-              'INSERT INTO teaching_assignments (id, section_id, course_id, faculty_id, periods_per_week) VALUES (?, ?, ?, ?, ?)',
-              [id, sec.id, course_id, faculty_id, periods]
+              'INSERT INTO teaching_assignments (id, section_id, course_id, faculty_id, periods_per_week, lesson_format) VALUES (?, ?, ?, ?, ?, ?)',
+              [id, sec.id, course_id, faculty_id, periods, lessonFormat]
             );
           }
 
@@ -190,14 +193,14 @@ export async function POST(req: NextRequest) {
               );
               if (existing) {
                 await execute(
-                  'UPDATE teaching_assignments SET faculty_id = ?, periods_per_week = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-                  [fb.id, periods, existing.id]
+                  'UPDATE teaching_assignments SET faculty_id = ?, periods_per_week = ?, lesson_format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                  [fb.id, periods, lessonFormat, existing.id]
                 );
               } else {
                 const id = crypto.randomUUID();
                 await execute(
-                  'INSERT INTO teaching_assignments (id, section_id, course_id, faculty_id, periods_per_week) VALUES (?, ?, ?, ?, ?)',
-                  [id, sec.id, course_id, fb.id, periods]
+                  'INSERT INTO teaching_assignments (id, section_id, course_id, faculty_id, periods_per_week, lesson_format) VALUES (?, ?, ?, ?, ?, ?)',
+                  [id, sec.id, course_id, fb.id, periods, lessonFormat]
                 );
               }
 
@@ -221,14 +224,14 @@ export async function POST(req: NextRequest) {
             );
             if (existing) {
               await execute(
-                'UPDATE teaching_assignments SET faculty_id = ?, periods_per_week = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-                [faculty_id, periods, existing.id]
+                'UPDATE teaching_assignments SET faculty_id = ?, periods_per_week = ?, lesson_format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                [faculty_id, periods, lessonFormat, existing.id]
               );
             } else {
               const id = crypto.randomUUID();
               await execute(
-                'INSERT INTO teaching_assignments (id, section_id, course_id, faculty_id, periods_per_week) VALUES (?, ?, ?, ?, ?)',
-                [id, sec.id, course_id, faculty_id, periods]
+                'INSERT INTO teaching_assignments (id, section_id, course_id, faculty_id, periods_per_week, lesson_format) VALUES (?, ?, ?, ?, ?, ?)',
+                [id, sec.id, course_id, faculty_id, periods, lessonFormat]
               );
             }
             currentFacLoad += periods;
@@ -248,14 +251,14 @@ export async function POST(req: NextRequest) {
           );
           if (existing) {
             await execute(
-              'UPDATE teaching_assignments SET faculty_id = ?, periods_per_week = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-              [faculty_id, periods, existing.id]
+              'UPDATE teaching_assignments SET faculty_id = ?, periods_per_week = ?, lesson_format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+              [faculty_id, periods, lessonFormat, existing.id]
             );
           } else {
             const id = crypto.randomUUID();
             await execute(
-              'INSERT INTO teaching_assignments (id, section_id, course_id, faculty_id, periods_per_week) VALUES (?, ?, ?, ?, ?)',
-              [id, sec.id, course_id, faculty_id, periods]
+              'INSERT INTO teaching_assignments (id, section_id, course_id, faculty_id, periods_per_week, lesson_format) VALUES (?, ?, ?, ?, ?, ?)',
+              [id, sec.id, course_id, faculty_id, periods, lessonFormat]
             );
           }
           currentFacLoad += periods;
@@ -289,27 +292,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Section is required for single mapping.' }, { status: 400 });
     }
 
-    // Check if an allocation already exists for this (section, course)
+    const batch = body.batch ? String(body.batch).trim() : 'ALL';
+
+    // Check if an allocation already exists for this (section, course, batch)
     const existing = await queryOne<{ id: string }>(
-      'SELECT id FROM teaching_assignments WHERE section_id = ? AND course_id = ?',
-      [section_id, course_id]
+      'SELECT id FROM teaching_assignments WHERE section_id = ? AND course_id = ? AND batch = ?',
+      [section_id, course_id, batch]
     );
 
     if (existing) {
       await execute(
         `UPDATE teaching_assignments
-         SET faculty_id = ?, periods_per_week = ?, updated_at = CURRENT_TIMESTAMP
+         SET faculty_id = ?, periods_per_week = ?, lesson_format = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
-        [faculty_id, periods, existing.id]
+        [faculty_id, periods, lessonFormat, existing.id]
       );
       return NextResponse.json({ success: true, id: existing.id, updated: true });
     }
 
     const id = crypto.randomUUID();
     await execute(
-      `INSERT INTO teaching_assignments (id, section_id, course_id, faculty_id, periods_per_week)
-       VALUES (?, ?, ?, ?, ?)`,
-      [id, section_id, course_id, faculty_id, periods]
+      `INSERT INTO teaching_assignments (id, section_id, course_id, faculty_id, periods_per_week, batch, lesson_format)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, section_id, course_id, faculty_id, periods, batch, lessonFormat]
     );
 
     return NextResponse.json({ success: true, id, created: true }, { status: 201 });

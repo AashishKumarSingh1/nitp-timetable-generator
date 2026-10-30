@@ -23,7 +23,7 @@ export const WDC_TEAM_MEMBERS = [
     titleColor: 'text-blue-700',
   },
   {
-    role: 'Full-Stack Developer & Architect',
+    role: 'Lead Full-Stack Developer & Architect',
     name: 'Aashish Kumar Singh',
     title: 'Full-Stack Software Developer',
     research:
@@ -36,9 +36,9 @@ export const WDC_TEAM_MEMBERS = [
     titleColor: 'text-red-700',
   },
   {
-    role: 'Lead Full-Stack Developer',
+    role: 'Full-Stack Developer & Architect',
     name: 'Pratyush Kumar',
-    title: 'Full-Stack Software Engineer',
+    title: 'Full-Stack Software Developer',
     research:
       'Database Architecture, Next.js Full Stack, Real-time APIs, UI/UX Engineering, Mobile Responsive Web Systems',
     image: 'https://nitp-database-s3.s3.ap-south-1.amazonaws.com/1780480576178-75f98495d95faf5e.jpg',
@@ -49,9 +49,9 @@ export const WDC_TEAM_MEMBERS = [
     titleColor: 'text-indigo-700',
   },
   {
-    role: 'Algorithm & Optimization Lead',
+    role: 'Algorithm & Optimization',
     name: 'Naveen M M',
-    title: 'Algorithm & Optimization Specialist',
+    title: 'Full-Stack Software Developer',
     research:
       'Combinatorial Optimization, Genetic & Greedy Scheduling Algorithms, Collision-Free Heuristics',
     image: 'https://avatars.githubusercontent.com/u/199819127?v=4',

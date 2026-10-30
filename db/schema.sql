@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS rooms (
     cols INT NOT NULL DEFAULT 5,
     capacity INT NOT NULL,            -- Total capacity = rows * cols
     is_available BOOLEAN NOT NULL DEFAULT 1,
+    time_off TEXT DEFAULT NULL,       -- JSON: Record<DayOfWeek, (0|1|2)[]>
+    color VARCHAR(20) DEFAULT NULL,   -- Hex or Tailwind color tag
     department_id VARCHAR(36) REFERENCES departments(id) ON DELETE SET NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -49,6 +51,8 @@ CREATE TABLE IF NOT EXISTS faculty (
     department_id VARCHAR(36) NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
     max_daily_periods INT NOT NULL DEFAULT 4,
     max_weekly_periods INT NOT NULL DEFAULT 18,
+    time_off TEXT DEFAULT NULL,       -- JSON: Record<DayOfWeek, (0|1|2)[]>
+    color VARCHAR(20) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -61,6 +65,9 @@ CREATE TABLE IF NOT EXISTS courses (
     department_id VARCHAR(36) NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
     periods_per_week INT NOT NULL DEFAULT 3,
     span INT NOT NULL DEFAULT 1,       -- 1 for theory, 2-3 for lab sessions
+    lesson_format VARCHAR(20) DEFAULT '1_AT_A_TIME', -- '1_AT_A_TIME', '1_AND_2_MIX', '2_AT_A_TIME', '3_AT_A_TIME'
+    time_off TEXT DEFAULT NULL,       -- JSON: Record<DayOfWeek, (0|1|2)[]>
+    color VARCHAR(20) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -86,6 +93,7 @@ CREATE TABLE IF NOT EXISTS class_sessions (
     faculty_id VARCHAR(36) NOT NULL REFERENCES faculty(id) ON DELETE CASCADE,
     room_id VARCHAR(36) NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
     section_name VARCHAR(50) NOT NULL, -- e.g. 'Section A', 'Year 2'
+    batch VARCHAR(50) NOT NULL DEFAULT 'ALL', -- 'ALL', 'Batch 1', 'Batch 2'
     is_pinned BOOLEAN NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -137,6 +145,8 @@ CREATE TABLE IF NOT EXISTS sections (
     semester INT NOT NULL DEFAULT 3,
     strength INT NOT NULL DEFAULT 60,   -- Student capacity / strength
     academic_year VARCHAR(20) NOT NULL DEFAULT '2026-27',
+    time_off TEXT DEFAULT NULL,       -- JSON: Record<DayOfWeek, (0|1|2)[]>
+    color VARCHAR(20) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_dept_section_sem UNIQUE (department_id, name, semester)
@@ -149,9 +159,11 @@ CREATE TABLE IF NOT EXISTS teaching_assignments (
     course_id VARCHAR(36) NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
     faculty_id VARCHAR(36) NOT NULL REFERENCES faculty(id) ON DELETE CASCADE,
     periods_per_week INT NOT NULL DEFAULT 3,
+    batch VARCHAR(50) NOT NULL DEFAULT 'ALL', -- 'ALL', 'Batch 1', 'Batch 2'
+    lesson_format VARCHAR(20) DEFAULT 'DEFAULT', -- 'DEFAULT', '1_AT_A_TIME', '1_AND_2_MIX', '2_AT_A_TIME', '3_AT_A_TIME'
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_section_course UNIQUE (section_id, course_id)
+    CONSTRAINT uq_section_course_batch UNIQUE (section_id, course_id, batch)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sections_dept ON sections(department_id);

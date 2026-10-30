@@ -10,6 +10,7 @@ import {
   Users,
   DoorOpen,
   BookOpen,
+  Clock,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -17,6 +18,7 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { useToast } from '@/components/ui/Toast';
+import { TimingSettingsModal } from '@/components/timetable/TimingSettingsModal';
 
 interface Department {
   id: string;
@@ -38,6 +40,7 @@ export default function DepartmentsPage() {
   const [editingDept, setEditingDept] = useState<Department | null>(null);
   const [formData, setFormData] = useState({ name: '', code: '' });
   const [saving, setSaving] = useState(false);
+  const [isTimingModalOpen, setIsTimingModalOpen] = useState(false);
 
   const fetchDepartments = async () => {
     try {
@@ -141,10 +144,20 @@ export default function DepartmentsPage() {
           </h1>
         </div>
 
-        <Button onClick={handleOpenAdd} variant="primary" className="shrink-0 text-xs">
-          <Plus className="w-4 h-4 mr-1.5" />
-          Add Department
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => setIsTimingModalOpen(true)}
+            variant="outline"
+            className="shrink-0 text-xs border-zinc-300 hover:border-red-600 hover:text-red-700"
+          >
+            <Clock className="w-4 h-4 mr-1.5 text-zinc-600" />
+            Timing & Lunch Schedule
+          </Button>
+          <Button onClick={handleOpenAdd} variant="primary" className="shrink-0 text-xs">
+            <Plus className="w-4 h-4 mr-1.5" />
+            Add Department
+          </Button>
+        </div>
       </div>
 
       {/* Aggregate KPI Strip */}
@@ -310,6 +323,10 @@ export default function DepartmentsPage() {
           </div>
         </form>
       </Modal>
+      <TimingSettingsModal
+        isOpen={isTimingModalOpen}
+        onClose={() => setIsTimingModalOpen(false)}
+      />
     </div>
   );
 }

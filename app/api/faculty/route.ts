@@ -6,12 +6,13 @@ export async function GET() {
     const faculty = await query(`
       SELECT f.id, f.code, f.name, f.email, f.designation,
              f.department_id, f.max_daily_periods, f.max_weekly_periods,
+             f.time_off, f.color,
              d.name AS department_name, d.code AS department_code,
              COUNT(cs.id) AS assigned_periods
       FROM faculty f
       LEFT JOIN departments d ON d.id = f.department_id
       LEFT JOIN class_sessions cs ON cs.faculty_id = f.id
-      GROUP BY f.id, f.code, f.name, f.email, f.designation, f.department_id, f.max_daily_periods, f.max_weekly_periods, d.name, d.code
+      GROUP BY f.id, f.code, f.name, f.email, f.designation, f.department_id, f.max_daily_periods, f.max_weekly_periods, f.time_off, f.color, d.name, d.code
       ORDER BY f.code ASC
     `);
     return NextResponse.json({ faculty });

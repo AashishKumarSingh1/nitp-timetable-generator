@@ -26,6 +26,38 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Universal Interactive Pointer Cursor across all clickable elements */
+button,
+[role="button"],
+[type="button"],
+[type="submit"],
+[type="reset"],
+a,
+select,
+summary,
+input[type="checkbox"],
+input[type="radio"],
+input[type="file"]::file-selector-button,
+[role="tab"],
+[role="menuitem"],
+[role="option"],
+.cursor-pointer,
+label:has(input[type="checkbox"]),
+label:has(input[type="radio"]) {
+  cursor: pointer !important;
+}
+
+/* Disabled interactive elements properly show not-allowed cursor */
+button:disabled,
+[role="button"][aria-disabled="true"],
+input:disabled,
+select:disabled,
+textarea:disabled,
+[disabled],
+.cursor-not-allowed {
+  cursor: not-allowed !important;
+}
+
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
   width: 5px;
@@ -55,7 +87,7 @@ body {
   background: linear-gradient(135deg, #fef2f2 0%, #ffffff 100%);
 }
 
-/* Print Layout Specifications - NIT Patna / aSc Timetables Official Format */
+/* Print Layout Specifications - NIT Patna / aPn Timetables Official Format */
 @media print {
   @page {
     size: landscape;
@@ -77,12 +109,12 @@ body {
     visibility: hidden !important;
   }
 
-  #asc-official-print-container,
-  #asc-official-print-container * {
+  #apn-official-print-container,
+  #apn-official-print-container * {
     visibility: visible !important;
   }
 
-  #asc-official-print-container {
+  #apn-official-print-container {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
@@ -94,12 +126,12 @@ body {
   }
 
   /* Hide app navigation, headers, and UI controls */
-  .no-print, nav, aside, header, footer:not(.asc-footer), [role="dialog"], .fixed {
+  .no-print, nav, aside, header, footer:not(.apn-footer), [role="dialog"], .fixed {
     display: none !important;
   }
 
   /* Multi-page booklet: Each section/faculty/room sheet is an independent landscape page */
-  .asc-timetable-sheet {
+  .apn-timetable-sheet {
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;
@@ -115,20 +147,20 @@ body {
     background: #ffffff !important;
   }
 
-  .asc-timetable-sheet:last-child {
+  .apn-timetable-sheet:last-child {
     page-break-after: auto;
     break-after: auto;
   }
 
   /* Crisp high-contrast black grid matching official institute scanned sheets */
-  .asc-table {
+  .apn-table {
     border-collapse: collapse !important;
     width: 100% !important;
     border: 2px solid #000000 !important;
     table-layout: fixed !important;
   }
 
-  .asc-table th, .asc-table td {
+  .apn-table th, .apn-table td {
     border: 1.5px solid #000000 !important;
     color: #000000 !important;
   }

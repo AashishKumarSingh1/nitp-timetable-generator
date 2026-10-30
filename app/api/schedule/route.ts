@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
     const sectionName = searchParams.get('sectionName');
 
     let sql = `
-      SELECT cs.id, cs.day, cs.period_index, cs.span, cs.section_name, cs.is_pinned,
+      SELECT cs.id, cs.day, cs.period_index, cs.span, cs.section_name, cs.batch, cs.is_pinned,
              c.id AS course_id, c.code AS course_code, c.name AS course_name,
              f.id AS faculty_id, f.code AS faculty_code, f.name AS faculty_name,
              r.id AS room_id, r.code AS room_code, r.name AS room_name, r.type AS room_type,
@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
       faculty_id,
       room_id,
       section_name,
+      batch = 'ALL',
       day,
       period_index,
       span = 1,
@@ -152,9 +153,10 @@ export async function POST(req: NextRequest) {
       period_index: number;
       span: number;
       section_name: string;
+      batch: string;
       course_code: string;
     }>(
-      `SELECT cs.period_index, cs.span, cs.section_name, c.code AS course_code
+      `SELECT cs.period_index, cs.span, cs.section_name, cs.batch, c.code AS course_code
        FROM class_sessions cs
        JOIN courses c ON c.id = cs.course_id
        WHERE cs.section_name = ? AND cs.day = ?`,
@@ -164,10 +166,13 @@ export async function POST(req: NextRequest) {
     for (const conf of sectionConflicts) {
       const confStart = conf.period_index;
       const confEnd = conf.period_index + conf.span - 1;
-      if (Math.max(pStart, confStart) <= Math.min(pEnd, confEnd)) {
+      const overlaps = Math.max(pStart, confStart) <= Math.min(pEnd, confEnd);
+      // Conflict exists if it's the entire section (ALL) or same batch
+      const isBatchClash = batch === 'ALL' || conf.batch === 'ALL' || batch === conf.batch;
+      if (overlaps && isBatchClash) {
         return NextResponse.json(
           {
-            error: `Section conflict: Cohort ${conf.section_name} already has ${conf.course_code} scheduled on ${day} Period ${confStart}.`,
+            error: `Section conflict: Cohort ${conf.section_name} (${conf.batch || 'ALL'}) already has ${conf.course_code} scheduled on ${day} Period ${confStart}.`,
             conflictType: 'SECTION',
           },
           { status: 409 }
@@ -178,9 +183,9 @@ export async function POST(req: NextRequest) {
     // All collision invariants verified -> Insert Session
     const id = crypto.randomUUID();
     await execute(
-      `INSERT INTO class_sessions (id, day, period_index, span, course_id, faculty_id, room_id, section_name, is_pinned)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, day, pStart, pSpan, course_id, faculty_id, room_id, section_name, is_pinned ? 1 : 0]
+      `INSERT INTO class_sessions (id, day, period_index, span, course_id, faculty_id, room_id, section_name, batch, is_pinned)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, day, pStart, pSpan, course_id, faculty_id, room_id, section_name, batch || 'ALL', is_pinned ? 1 : 0]
     );
 
     return NextResponse.json({ success: true, id }, { status: 201 });
