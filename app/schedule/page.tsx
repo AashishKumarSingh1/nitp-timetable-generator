@@ -1034,7 +1034,7 @@ export default function SchedulePage() {
     const lunchAfter = hasLunch ? (options.lunchAfterPeriod ?? 4) : 0;
     const lunchTime = options.lunchTime || '12:25 - 13:30';
     const lunchLabel = options.lunchLabel || 'LUNCH';
-    const lunchColWidth = hasLunch ? 16 : 0;
+    const lunchColWidth = hasLunch ? 18 : 0;
 
     const periodColWidth = (tableWidth - dayColWidth - lunchColWidth) / periods.length;
     const dayRowHeight = (tableHeight - headerHeight) / days.length;
@@ -1089,23 +1089,42 @@ export default function SchedulePage() {
       pdf.text(p.time, x + periodColWidth / 2, tableStartY + 10.2, { align: 'center' });
     });
 
-    // 5b. Lunch Break Header
+    // 5b. Lunch Break Header (Zero-overflow stacked layout)
     if (hasLunch) {
       pdf.setDrawColor(0, 0, 0);
       pdf.setLineWidth(0.35);
       pdf.rect(lunchX, tableStartY, lunchColWidth, headerHeight);
 
-      // "LUNCH"
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(9);
-      pdf.setTextColor(0, 0, 0);
-      pdf.text(lunchLabel.toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 5.2, { align: 'center' });
+      const words = (lunchLabel || 'LUNCH RECESS').trim().split(/\s+/);
+      if (words.length > 1) {
+        // "LUNCH"
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(0, 0, 0);
+        pdf.text(words[0].toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 4.2, { align: 'center' });
 
-      // "12:25 - 13:30"
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(6.2);
-      pdf.setTextColor(40, 40, 40);
-      pdf.text(lunchTime, lunchX + lunchColWidth / 2, tableStartY + 10.2, { align: 'center' });
+        // "RECESS"
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(6.2);
+        pdf.setTextColor(40, 40, 40);
+        pdf.text(words.slice(1).join(' ').toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 7.8, { align: 'center' });
+
+        // "12:25 - 13:30"
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(5.2);
+        pdf.setTextColor(60, 60, 60);
+        pdf.text(lunchTime, lunchX + lunchColWidth / 2, tableStartY + 11.2, { align: 'center' });
+      } else {
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(0, 0, 0);
+        pdf.text(lunchLabel.toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 5.2, { align: 'center' });
+
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(5.8);
+        pdf.setTextColor(60, 60, 60);
+        pdf.text(lunchTime, lunchX + lunchColWidth / 2, tableStartY + 10.2, { align: 'center' });
+      }
     }
 
     // 6. Build lookup matrix for sessions & multi-period spans
@@ -1246,28 +1265,28 @@ export default function SchedulePage() {
         }
       });
 
-      // Lunch Recess Column Cell in this day
-      if (hasLunch) {
-        pdf.setDrawColor(0, 0, 0);
-        pdf.setLineWidth(0.35);
-        pdf.rect(lunchX, y, lunchColWidth, dayRowHeight);
-
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(7.5);
-        pdf.setTextColor(20, 20, 20);
-        pdf.text('LUNCH', lunchX + lunchColWidth / 2, y + dayRowHeight / 2 - 2.5, { align: 'center' });
-
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(5.8);
-        pdf.setTextColor(60, 60, 60);
-        pdf.text('RECESS', lunchX + lunchColWidth / 2, y + dayRowHeight / 2 + 1.5, { align: 'center' });
-
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(5.2);
-        pdf.setTextColor(80, 80, 80);
-        pdf.text(lunchTime, lunchX + lunchColWidth / 2, y + dayRowHeight / 2 + 5.5, { align: 'center' });
-      }
     });
+
+    // 7b. Single continuous Lunch column body spanning across all days
+    if (hasLunch) {
+      const lunchBodyStartY = tableStartY + headerHeight;
+      const lunchBodyHeight = tableHeight - headerHeight;
+      pdf.setDrawColor(0, 0, 0);
+      pdf.setLineWidth(0.35);
+      pdf.rect(lunchX, lunchBodyStartY, lunchColWidth, lunchBodyHeight);
+
+      const letters = ['L', 'U', 'N', 'C', 'H'];
+      const letterStep = 11;
+      const totalTextHeight = (letters.length - 1) * letterStep;
+      const startY = lunchBodyStartY + (lunchBodyHeight - totalTextHeight) / 2 + 2;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(12);
+      pdf.setTextColor(20, 20, 20);
+      for (let i = 0; i < letters.length; i++) {
+        pdf.text(letters[i], lunchX + lunchColWidth / 2, startY + i * letterStep, { align: 'center' });
+      }
+    }
 
     // 8. Footer line (Timetable generated: ... | aPn Timetables)
     pdf.setFont('helvetica', 'normal');
@@ -1594,7 +1613,7 @@ export default function SchedulePage() {
               const lunchAfter = hasLunch ? (options.lunchAfterPeriod || 4) : 0;
               const lunchTime = options.lunchTime || '12:25 - 13:30';
               const lunchLabel = options.lunchLabel || 'LUNCH';
-              const lunchColWidth = hasLunch ? 16 : 0;
+              const lunchColWidth = hasLunch ? 18 : 0;
 
               const periodColWidth = (tableWidth - dayColWidth - lunchColWidth) / periods.length;
               const dayRowHeight = (tableHeight - headerHeight) / days.length;
@@ -1640,18 +1659,42 @@ export default function SchedulePage() {
                 pdf.text(p.time, x + periodColWidth / 2, tableStartY + 10.2, { align: 'center' });
               });
 
+              // 5b. Lunch Break Header (Zero-overflow stacked layout)
               if (hasLunch) {
                 pdf.setDrawColor(0, 0, 0);
                 pdf.setLineWidth(0.35);
                 pdf.rect(lunchX, tableStartY, lunchColWidth, headerHeight);
-                pdf.setFont('helvetica', 'bold');
-                pdf.setFontSize(9);
-                pdf.setTextColor(0, 0, 0);
-                pdf.text(lunchLabel.toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 5.2, { align: 'center' });
-                pdf.setFont('helvetica', 'normal');
-                pdf.setFontSize(6.2);
-                pdf.setTextColor(40, 40, 40);
-                pdf.text(lunchTime, lunchX + lunchColWidth / 2, tableStartY + 10.2, { align: 'center' });
+
+                const words = (lunchLabel || 'LUNCH RECESS').trim().split(/\s+/);
+                if (words.length > 1) {
+                  // "LUNCH"
+                  pdf.setFont('helvetica', 'bold');
+                  pdf.setFontSize(7.5);
+                  pdf.setTextColor(0, 0, 0);
+                  pdf.text(words[0].toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 4.2, { align: 'center' });
+
+                  // "RECESS"
+                  pdf.setFont('helvetica', 'bold');
+                  pdf.setFontSize(6.2);
+                  pdf.setTextColor(40, 40, 40);
+                  pdf.text(words.slice(1).join(' ').toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 7.8, { align: 'center' });
+
+                  // "12:25 - 13:30"
+                  pdf.setFont('helvetica', 'normal');
+                  pdf.setFontSize(5.2);
+                  pdf.setTextColor(60, 60, 60);
+                  pdf.text(lunchTime, lunchX + lunchColWidth / 2, tableStartY + 11.2, { align: 'center' });
+                } else {
+                  pdf.setFont('helvetica', 'bold');
+                  pdf.setFontSize(8.5);
+                  pdf.setTextColor(0, 0, 0);
+                  pdf.text(lunchLabel.toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 5.2, { align: 'center' });
+
+                  pdf.setFont('helvetica', 'normal');
+                  pdf.setFontSize(5.8);
+                  pdf.setTextColor(60, 60, 60);
+                  pdf.text(lunchTime, lunchX + lunchColWidth / 2, tableStartY + 10.2, { align: 'center' });
+                }
               }
 
               const matrix = new Map();
@@ -1748,24 +1791,28 @@ export default function SchedulePage() {
                   }
                 });
 
-                if (hasLunch) {
-                  pdf.setDrawColor(0, 0, 0);
-                  pdf.setLineWidth(0.35);
-                  pdf.rect(lunchX, y, lunchColWidth, dayRowHeight);
-                  pdf.setFont('helvetica', 'bold');
-                  pdf.setFontSize(7.5);
-                  pdf.setTextColor(20, 20, 20);
-                  pdf.text('LUNCH', lunchX + lunchColWidth / 2, y + dayRowHeight / 2 - 2.5, { align: 'center' });
-                  pdf.setFont('helvetica', 'bold');
-                  pdf.setFontSize(5.8);
-                  pdf.setTextColor(60, 60, 60);
-                  pdf.text('RECESS', lunchX + lunchColWidth / 2, y + dayRowHeight / 2 + 1.5, { align: 'center' });
-                  pdf.setFont('helvetica', 'normal');
-                  pdf.setFontSize(5.2);
-                  pdf.setTextColor(80, 80, 80);
-                  pdf.text(lunchTime, lunchX + lunchColWidth / 2, y + dayRowHeight / 2 + 5.5, { align: 'center' });
-                }
               });
+
+              // 7b. Single continuous Lunch column body spanning across all days
+              if (hasLunch) {
+                const lunchBodyStartY = tableStartY + headerHeight;
+                const lunchBodyHeight = tableHeight - headerHeight;
+                pdf.setDrawColor(0, 0, 0);
+                pdf.setLineWidth(0.35);
+                pdf.rect(lunchX, lunchBodyStartY, lunchColWidth, lunchBodyHeight);
+
+                const letters = ['L', 'U', 'N', 'C', 'H'];
+                const letterStep = 11;
+                const totalTextHeight = (letters.length - 1) * letterStep;
+                const startY = lunchBodyStartY + (lunchBodyHeight - totalTextHeight) / 2 + 2;
+
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(12);
+                pdf.setTextColor(20, 20, 20);
+                for (let i = 0; i < letters.length; i++) {
+                  pdf.text(letters[i], lunchX + lunchColWidth / 2, startY + i * letterStep, { align: 'center' });
+                }
+              }
 
               pdf.setFont('helvetica', 'normal');
               pdf.setFontSize(8.5);
@@ -3082,7 +3129,7 @@ function ApnTimetableSheet({
           </tr>
         </thead>
         <tbody>
-          {days.map((day) => (
+          {days.map((day, dayIdx) => (
             <tr key={day} style={{ height: '82px' }}>
               {/* Day column: Mo, Tu, We, Th, Fr */}
               <td
@@ -3171,16 +3218,17 @@ function ApnTimetableSheet({
                       </td>
                     )}
 
-                    {isAfterLunch && (
+                    {isAfterLunch && dayIdx === 0 && (
                       <td
-                        key={`lunch-${day}`}
+                        key="lunch-column-span"
+                        rowSpan={days.length}
                         style={{
                           width: '56px',
                           border: '1.5px solid #000000',
                           textAlign: 'center',
                           verticalAlign: 'middle',
                           backgroundColor: '#ffffff',
-                          padding: '2px',
+                          padding: '6px 0',
                         }}
                       >
                         <div
@@ -3189,19 +3237,25 @@ function ApnTimetableSheet({
                             flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
+                            height: '100%',
                             userSelect: 'none',
-                            textAlign: 'center',
+                            color: '#000000',
                           }}
                         >
-                          <div style={{ fontSize: '11px', fontWeight: '800', letterSpacing: '0.05em', color: '#000000', textTransform: 'uppercase', lineHeight: 1.1 }}>
-                            LUNCH
-                          </div>
-                          <div style={{ fontSize: '8.5px', fontWeight: '700', letterSpacing: '0.05em', color: '#3f3f46', textTransform: 'uppercase', lineHeight: 1.1, marginTop: '2px' }}>
-                            RECESS
-                          </div>
-                          <div style={{ fontSize: '8px', fontWeight: '600', fontFamily: 'monospace', color: '#18181b', marginTop: '4px', whiteSpace: 'nowrap' }}>
-                            {lunchTime}
-                          </div>
+                          {['L', 'U', 'N', 'C', 'H'].map((char, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                fontSize: '15px',
+                                lineHeight: '2.0',
+                                fontWeight: '800',
+                                letterSpacing: '0.15em',
+                                display: 'block',
+                              }}
+                            >
+                              {char}
+                            </span>
+                          ))}
                         </div>
                       </td>
                     )}
