@@ -36,7 +36,7 @@ async function runVerification() {
       FROM class_sessions
       GROUP BY room_id, day, period_index
       HAVING COUNT(*) > 1
-    )
+    ) AS sub
   `);
 
   const facultyCollisions = await query<{ count: number }>(`
@@ -45,7 +45,7 @@ async function runVerification() {
       FROM class_sessions
       GROUP BY faculty_id, day, period_index
       HAVING COUNT(*) > 1
-    )
+    ) AS sub
   `);
 
   const roomClashes = roomCollisions[0]?.count || 0;
@@ -97,6 +97,40 @@ async function runVerification() {
     throw new Error(`Adjacent Section Invariant Failed! ${adjacentDiffSectionClashes} back-to-back cross-section clashes found.`);
   }
   console.log('   ✅ No-Adjacent-Diff-Sections Invariant: 100% VERIFIED');
+
+  // Verify Lab Room & Duration Invariants:
+  console.log('   - Verifying Lab Room & Duration Invariants...');
+  const labSessions = await query<{
+    course_code: string;
+    span: number;
+    room_code: string;
+    room_type: string;
+    section_name: string;
+  }>(`
+    SELECT c.code as course_code, cs.span, r.code as room_code, r.type as room_type, cs.section_name
+    FROM class_sessions cs
+    JOIN courses c ON c.id = cs.course_id
+    JOIN rooms r ON r.id = cs.room_id
+    WHERE cs.span >= 2 OR c.code LIKE '%-PR' OR c.code LIKE '%L'
+  `);
+
+  let invalidLabRooms = 0;
+  let invalidLabSpans = 0;
+  for (const ls of labSessions) {
+    if (ls.room_type !== 'COMPUTER_LAB') {
+      console.error(`   ❌ Lab Assigned to Non-Lab Room: ${ls.course_code} (${ls.section_name}) assigned to ${ls.room_code} (${ls.room_type})`);
+      invalidLabRooms++;
+    }
+    if (ls.span < 2) {
+      console.error(`   ❌ 1-Hour Lab Detected: ${ls.course_code} (${ls.section_name}) has span ${ls.span}`);
+      invalidLabSpans++;
+    }
+  }
+  console.log(`   - Verified ${labSessions.length} Lab Sessions: 100% in specialized COMPUTER_LAB rooms, 0 in lecture halls, 0 solitary 1h labs.`);
+  if (invalidLabRooms > 0 || invalidLabSpans > 0) {
+    throw new Error(`Lab Invariants Failed! Invalid rooms: ${invalidLabRooms}, Invalid spans: ${invalidLabSpans}`);
+  }
+  console.log('   ✅ Lab Room & Duration Invariants: 100% VERIFIED');
 
   // Verify Student Constraints:
   // 1. No more than 4hour continuous classes or lab in 1 session (before or after lunch)
@@ -210,16 +244,21 @@ async function runVerification() {
       for (let p = 0; p < s.span; p++) occupiedPeriods.add(s.period_index + p);
     }
     const sorted = Array.from(occupiedPeriods).sort((a, b) => a - b);
-    for (let i = 0; i < sorted.length - 1; i++) {
-      if (sorted[i + 1] - sorted[i] === 2) {
-        // Gap of 1 period
-        // Check if lunch separates them cleanly (e.g. sorted[i] === 4 and sorted[i+1] === 5)
-        if (sorted[i] === 4 && sorted[i + 1] === 5) {
-          // Normal lunch recess
-        } else {
-          console.error(`   ❌ Isolated 1-Hour Dead Gap: ${key} has empty P${sorted[i] + 1} between P${sorted[i]} and P${sorted[i + 1]}`);
-          isolatedGapsFound++;
-        }
+    // Dead gap within morning session (P1..P4)
+    const morning = sorted.filter((p) => p <= 4);
+    for (let i = 0; i < morning.length - 1; i++) {
+      if (morning[i + 1] - morning[i] === 2) {
+        console.error(`   ❌ Isolated 1-Hour Dead Gap in Morning: ${key} has empty P${morning[i] + 1} between P${morning[i]} and P${morning[i + 1]}`);
+        isolatedGapsFound++;
+      }
+    }
+
+    // Dead gap within afternoon session (P5..P8+)
+    const afternoon = sorted.filter((p) => p > 4);
+    for (let i = 0; i < afternoon.length - 1; i++) {
+      if (afternoon[i + 1] - afternoon[i] === 2) {
+        console.error(`   ❌ Isolated 1-Hour Dead Gap in Afternoon: ${key} has empty P${afternoon[i] + 1} between P${afternoon[i]} and P${afternoon[i + 1]}`);
+        isolatedGapsFound++;
       }
     }
   }
@@ -274,7 +313,11 @@ async function runVerification() {
   console.log('🎉 ALL SYSTEM ACCEPTANCE CHECKS PASSED WITH 100% SUCCESS!');
 }
 
-runVerification().catch((e) => {
-  console.error('Verification failed:', e);
-  process.exit(1);
-});
+runVerification()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch((e) => {
+    console.error('Verification failed:', e);
+    process.exit(1);
+  });

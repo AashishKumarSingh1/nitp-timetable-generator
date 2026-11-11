@@ -1,16 +1,19 @@
 -- ============================================================================
--- Single-College Academic Scheduler Schema (Pure SQL - PostgreSQL & SQLite compatible)
+-- NIT Patna Academic Timetable & Seating Generator Schema (MySQL / TiDB / RDS)
 -- ============================================================================
 
--- 1. Users & Authentication
+-- 1. Users & Authentication (Institutional Google Workspace OAuth)
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(36) PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
+    google_id VARCHAR(255) NULL,
     name VARCHAR(255) NOT NULL,
-    role VARCHAR(50) NOT NULL DEFAULT 'ADMIN', -- 'ADMIN', 'FACULTY', 'STAFF'
+    role VARCHAR(50) NOT NULL DEFAULT 'FACULTY', -- 'ADMIN', 'FACULTY', 'STAFF'
+    avatar_url TEXT NULL,
+    last_login TIMESTAMP NULL DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_users_google_id (google_id)
 );
 
 -- 2. Departments
@@ -30,7 +33,7 @@ CREATE TABLE IF NOT EXISTS rooms (
     building VARCHAR(100) NOT NULL DEFAULT 'Main Block',
     floor INT NOT NULL DEFAULT 1,
     type VARCHAR(50) NOT NULL DEFAULT 'LECTURE_HALL', -- 'LECTURE_HALL', 'CLASSROOM', 'COMPUTER_LAB', 'SEMINAR_HALL'
-    rows INT NOT NULL DEFAULT 6,
+    `rows` INT NOT NULL DEFAULT 6,
     cols INT NOT NULL DEFAULT 5,
     capacity INT NOT NULL,            -- Total capacity = rows * cols
     is_available BOOLEAN NOT NULL DEFAULT 1,

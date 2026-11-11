@@ -1,5 +1,4 @@
 import { SignJWT, jwtVerify } from 'jose';
-import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
 import { queryOne, execute } from './db';
 
@@ -43,8 +42,8 @@ export async function verifySessionToken(token: string): Promise<AuthUser | null
   }
 }
 
-// Flag to bypass login for rapid testing and development
-export const BYPASS_AUTH = true;
+// Flag to bypass login for rapid testing and development (false in production)
+export const BYPASS_AUTH = false;
 
 export const DEFAULT_BYPASS_USER: AuthUser = {
   id: 'usr_admin_default',
@@ -65,7 +64,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     // ignore
   }
 
-  // Bypass login: automatically return active administrator profile
+  // Fallback bypass only if explicitly enabled
   if (BYPASS_AUTH) {
     return DEFAULT_BYPASS_USER;
   }
@@ -76,9 +75,6 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 export async function requireAuth(): Promise<AuthUser> {
   const user = await getCurrentUser();
   if (!user) {
-    if (BYPASS_AUTH) {
-      return DEFAULT_BYPASS_USER;
-    }
     throw new Error('UNAUTHORIZED');
   }
   return user;
@@ -100,79 +96,21 @@ export async function clearSessionCookie() {
   cookieStore.delete(SESSION_COOKIE_NAME);
 }
 
-export async function loginWithPassword(email: string, password: string): Promise<{ success: boolean; user?: AuthUser; error?: string }> {
-  const user = await queryOne<{
-    id: string;
-    email: string;
-    password_hash: string;
-    name: string;
-    role: 'ADMIN' | 'FACULTY' | 'STAFF';
-  }>('SELECT id, email, password_hash, name, role FROM users WHERE email = ?', [email.toLowerCase().trim()]);
-
-  if (!user) {
-    return { success: false, error: 'Invalid email address or password' };
-  }
-
-  const isValid = await bcrypt.compare(password, user.password_hash);
-  if (!isValid) {
-    return { success: false, error: 'Invalid email address or password' };
-  }
-
-  const authUser: AuthUser = {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: user.role,
-  };
-
-  const token = await signSessionToken(authUser);
-  await setSessionCookie(token);
-
-  return { success: true, user: authUser };
-}
-
-export async function registerUser(
-  email: string,
-  password: string,
-  name: string,
-  role: 'ADMIN' | 'FACULTY' | 'STAFF' = 'ADMIN'
-): Promise<{ success: boolean; user?: AuthUser; error?: string }> {
-  if (password.length < 8) {
-    return { success: false, error: 'Password must be at least 8 characters long' };
-  }
-
-  const existing = await queryOne('SELECT id FROM users WHERE email = ?', [email.toLowerCase().trim()]);
-  if (existing) {
-    return { success: false, error: 'An account with this email already exists' };
-  }
-
-  const userId = 'usr_' + crypto.randomUUID().replace(/-/g, '').substring(0, 12);
-  const passwordHash = await bcrypt.hash(password, 10);
-
-  await execute(
-    'INSERT INTO users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)',
-    [userId, email.toLowerCase().trim(), passwordHash, name.trim(), role]
-  );
-
-  const authUser: AuthUser = {
-    id: userId,
-    email: email.toLowerCase().trim(),
-    name: name.trim(),
-    role,
-  };
-
-  const token = await signSessionToken(authUser);
-  await setSessionCookie(token);
-
-  return { success: true, user: authUser };
-}
-
-export async function loginOrCreateGoogleUser(googleProfile: {
+/**
+ * Institutional Google Workspace Authentication
+ * Strict whitelist-based access:
+ * - Allows login ONLY if email exists in `users` or `faculty` table.
+ * - Self-signup is strictly disabled.
+ */
+export async function authenticateGoogleUser(googleProfile: {
   email: string;
   name: string;
   sub?: string;
+  picture?: string;
 }): Promise<{ success: boolean; user?: AuthUser; error?: string }> {
   const email = googleProfile.email.toLowerCase().trim();
+
+  // 1. Check existing registered users
   const existing = await queryOne<{
     id: string;
     email: string;
@@ -189,27 +127,48 @@ export async function loginOrCreateGoogleUser(googleProfile: {
       name: existing.name || googleProfile.name.trim(),
       role: existing.role,
     };
-  } else {
-    const userId = 'usr_' + crypto.randomUUID().replace(/-/g, '').substring(0, 12);
-    // Assign ADMIN if admin email or specified in ADMIN_EMAILS, otherwise FACULTY
-    const role: 'ADMIN' | 'FACULTY' | 'STAFF' =
-      email === 'admin@nitp.ac.in' || email.startsWith('admin') ? 'ADMIN' : 'FACULTY';
-    const displayName = googleProfile.name.trim() || email.split('@')[0];
 
+    // Update metadata if columns exist
     try {
       await execute(
-        'INSERT INTO users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)',
-        [userId, email, 'google_oauth_no_password', displayName, role]
+        'UPDATE users SET google_id = COALESCE(?, google_id), avatar_url = COALESCE(?, avatar_url), last_login = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [googleProfile.sub || null, googleProfile.picture || null, existing.id]
       );
-    } catch (e) {
-      console.warn('[AUTH] Notice: Google user created in session directly:', e);
+    } catch {
+      // ignore metadata update error
+    }
+  } else {
+    // 2. Check if the user is a registered faculty member in the academic directory
+    const faculty = await queryOne<{
+      id: string;
+      name: string;
+      email: string;
+    }>('SELECT id, name, email FROM faculty WHERE LOWER(email) = ?', [email]);
+
+    if (!faculty) {
+      // 3. Reject unauthorized Google accounts (NO SIGNUP ALLOWED)
+      return {
+        success: false,
+        error: `Access Denied: The Google account (${email}) is not registered. Self-registration is disabled. Please contact the administrator.`,
+      };
+    }
+
+    // Auto-link registered faculty to users table
+    const userId = 'usr_' + faculty.id;
+    try {
+      await execute(
+        'INSERT INTO users (id, email, name, role, google_id, avatar_url, last_login) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
+        [userId, email, faculty.name, 'FACULTY', googleProfile.sub || null, googleProfile.picture || null]
+      );
+    } catch {
+      // fallback if already inserted
     }
 
     authUser = {
       id: userId,
       email,
-      name: displayName,
-      role,
+      name: faculty.name,
+      role: 'FACULTY',
     };
   }
 
@@ -218,4 +177,7 @@ export async function loginOrCreateGoogleUser(googleProfile: {
 
   return { success: true, user: authUser };
 }
+
+// Backward-compatible alias for existing callers
+export const loginOrCreateGoogleUser = authenticateGoogleUser;
 

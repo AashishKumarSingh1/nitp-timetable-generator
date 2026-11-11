@@ -89,11 +89,12 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 3. Log in or create user profile and set session cookie
+    // 3. Authenticate Google user and set session cookie (no self-signup)
     const result = await loginOrCreateGoogleUser({
       email,
       name: name || email.split('@')[0],
       sub,
+      picture: profile.picture,
     });
 
     if (!result.success) {

@@ -379,8 +379,28 @@ export function MasterGrid({
                         const isLastPeriodOfDay = pIdx === periods.length - 1;
                         const isDayEnd = isLastPeriodOfDay && dayIdx < activeDays.length - 1;
 
-                        // Check if this cell is part of an ongoing multi-period span started in an earlier period
-                        const isContinuation = cellSessions.some((s) => s.period_index < period.index);
+                        // Check if this cell is entirely part of an ongoing multi-period span started in an earlier period
+                        const isContinuation = cellSessions.length > 0 && cellSessions.every((s) => s.period_index < period.index);
+                        if (isContinuation) {
+                          return isAfterLunch ? (
+                            <td
+                              key={`lunch-${cellKey}`}
+                              className="bg-amber-100/40 dark:bg-amber-950/20 border-r-2 border-amber-300/60 dark:border-amber-800 text-center p-0.5 select-none w-9 min-w-[36px]"
+                            >
+                              <div className="h-full flex items-center justify-center">
+                                <div className="w-0.5 h-8 bg-amber-300 dark:bg-amber-700/60 rounded" />
+                              </div>
+                            </td>
+                          ) : null;
+                        }
+
+                        // Determine column span for sessions starting in this period
+                        const startingSessions = cellSessions.filter((s) => s.period_index === period.index);
+                        const sessionSpan = startingSessions.length > 0
+                          ? Math.max(1, ...startingSessions.map((s) => s.span || 1))
+                          : 1;
+
+                        const spansToDayEnd = pIdx + (sessionSpan - 1) >= periods.length - 1 && dayIdx < activeDays.length - 1;
 
                         // If selectedDemand is active, check feasibility for placement
                         const candidate = selectedDemand
@@ -390,8 +410,9 @@ export function MasterGrid({
                         return (
                           <React.Fragment key={`${cellKey}`}>
                             <td
+                              colSpan={sessionSpan}
                               className={`p-1 ${
-                                isDayEnd
+                                spansToDayEnd || isDayEnd
                                   ? 'border-r-2 border-r-black dark:border-r-zinc-300'
                                   : 'border-r border-slate-100 dark:border-slate-800'
                               } relative transition align-top ${
@@ -423,29 +444,12 @@ export function MasterGrid({
                               }
                             >
                               {/* Session Cards Rendering */}
-                              {cellSessions.length > 0 ? (
+                              {startingSessions.length > 0 ? (
                                 <div className="flex flex-col gap-1 h-full">
-                                  {cellSessions.map((session) => {
+                                  {startingSessions.map((session) => {
                                     const isLab = isLabSession(session);
                                     const theme = getCourseTheme(session.course_code, isLab);
                                     const isMultiBatch = session.batch && session.batch !== 'ALL';
-
-                                    // If this is a continuation cell for a multi-span session, show a sleek connection marker
-                                    if (session.period_index < period.index) {
-                                      return (
-                                        <div
-                                          key={session.id}
-                                          className="h-full rounded flex items-center justify-center opacity-70 text-[9px] font-semibold border-l-2 border-dashed"
-                                          style={{
-                                            backgroundColor: theme.bg,
-                                            color: theme.text,
-                                            borderColor: theme.border,
-                                          }}
-                                        >
-                                          <span>→ cont. ({session.course_code})</span>
-                                        </div>
-                                      );
-                                    }
 
                                     return (
                                       <div

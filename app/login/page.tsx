@@ -182,7 +182,7 @@ function LoginForm() {
 
       <CardFooter className="justify-center border-zinc-800/80 pt-3 pb-5">
         <p className="text-[11px] text-zinc-400 text-center">
-          First-time login? Your account is provisioned automatically upon your first Google authentication.
+          Institutional Access Only · Self-registration is disabled. Only pre-authorized NIT Patna faculty and administration accounts are granted access.
         </p>
       </CardFooter>
     </Card>

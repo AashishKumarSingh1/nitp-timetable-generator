@@ -1726,7 +1726,7 @@ export default function SchedulePage() {
       {activeViewMode === 'STUDIO' ? (
         <div className="space-y-4">
           <MasterGrid
-            sessions={allSessions}
+            sessions={displayAllSessions}
             perspective={studioPerspective}
             density={gridDensity}
             workingDays={workingDays}

@@ -390,12 +390,17 @@ export async function runSchedulerSolver(options: {
         facultyLoadTracker.set(facId, (facultyLoadTracker.get(facId) || 0) + periods);
       }
 
-      const effectiveFormat: LessonFormat = (explicitMapping?.lesson_format && explicitMapping.lesson_format !== 'DEFAULT')
-        ? (explicitMapping.lesson_format as LessonFormat)
-        : ((c.lesson_format as LessonFormat) || (span > 1 ? (span === 3 ? '3_AT_A_TIME' : '2_AT_A_TIME') : '1_AT_A_TIME'));
+      const isCourseLab = c.code.endsWith('L') || c.code.endsWith('-PR') || c.code.includes('LAB') || c.name.toLowerCase().includes('lab') || c.name.toLowerCase().includes('practical');
 
-      const sessionSpans = calculateSessionSpans(periods, effectiveFormat, span);
+      const effectiveFormat: LessonFormat = isCourseLab
+        ? (periods === 3 ? '3_AT_A_TIME' : '2_AT_A_TIME')
+        : (explicitMapping?.lesson_format && explicitMapping.lesson_format !== 'DEFAULT')
+          ? (explicitMapping.lesson_format as LessonFormat)
+          : ((c.lesson_format as LessonFormat) || (span > 1 ? (span === 3 ? '3_AT_A_TIME' : '2_AT_A_TIME') : '1_AT_A_TIME'));
+
+      const sessionSpans = calculateSessionSpans(periods, effectiveFormat, isCourseLab ? 2 : span);
       for (const s of sessionSpans) {
+        const isLabSlot = isCourseLab || s > 1;
         demands.push({
           sectionId: sec.id,
           courseId: c.id,
@@ -406,7 +411,7 @@ export async function runSchedulerSolver(options: {
           facultyCode: facCode,
           sectionName: sectionDisplayName,
           span: s,
-          preferredRoomType: s > 1 ? 'COMPUTER_LAB' : 'LECTURE_HALL',
+          preferredRoomType: isLabSlot ? 'COMPUTER_LAB' : 'LECTURE_HALL',
           periodsPerWeek: periods,
         });
       }
@@ -624,20 +629,28 @@ export async function runSchedulerSolver(options: {
 
     const possibleStarts = getPossiblePeriodStarts(demand.span);
 
-    // Filter candidate rooms: preferred type first, then other suitable rooms
-    const preferred = rooms.filter((r) => r.type === demand.preferredRoomType);
-    const secondary = rooms.filter((r) => r.type !== demand.preferredRoomType);
-    let candidateRooms = [...preferred, ...secondary];
+    const isLabDemand = demand.span > 1 || demand.preferredRoomType === 'COMPUTER_LAB' || demand.courseCode.endsWith('L') || demand.courseCode.endsWith('-PR') || demand.courseName.toLowerCase().includes('lab');
 
-    const homeRoomId = sectionHomeRoomMap.get(demand.sectionName);
-    if (homeRoomId && demand.preferredRoomType !== 'COMPUTER_LAB') {
-      candidateRooms.sort((a, b) => {
-        if (a.id === homeRoomId && b.id !== homeRoomId) return -1;
-        if (b.id === homeRoomId && a.id !== homeRoomId) return 1;
-        const aPref = a.type === demand.preferredRoomType ? 1 : 0;
-        const bPref = b.type === demand.preferredRoomType ? 1 : 0;
-        return bPref - aPref;
-      });
+    let candidateRooms: typeof rooms;
+    let homeRoomId: string | undefined;
+
+    if (isLabDemand) {
+      // Practical Labs MUST strictly be assigned to computer/engineering labs. NEVER to lecture halls!
+      const labRooms = rooms.filter((r) => r.type === 'COMPUTER_LAB' || r.type === 'LAB');
+      candidateRooms = labRooms.length > 0 ? labRooms : rooms.filter((r) => r.type === 'COMPUTER_LAB');
+      homeRoomId = undefined; // Do not bias lab to theory home classroom
+    } else {
+      // Theory classes MUST be in lecture halls/classrooms, prioritizing dedicated section home room.
+      const theoryRooms = rooms.filter((r) => r.type === 'LECTURE_HALL' || r.type === 'CLASSROOM' || r.type === 'SEMINAR_HALL');
+      homeRoomId = sectionHomeRoomMap.get(demand.sectionName);
+      candidateRooms = theoryRooms.length > 0 ? [...theoryRooms] : [...rooms];
+      if (homeRoomId) {
+        candidateRooms.sort((a, b) => {
+          if (a.id === homeRoomId && b.id !== homeRoomId) return -1;
+          if (b.id === homeRoomId && a.id !== homeRoomId) return 1;
+          return 0;
+        });
+      }
     }
 
     // Pass 1: Strict mode (allowAdjacentDiffSections = false) ensures zero back-to-back cross-section classes
