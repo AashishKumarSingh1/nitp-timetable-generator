@@ -290,8 +290,9 @@ export function mergeAdjacentSessions(
         }
       }
 
-      if (isSameCourse && isSameFaculty && isSameRoom && isContiguous && !crossesLunch) {
-        // Merge session into prev
+      const isLab = isLabSession(prev) || isLabSession(session);
+      if (isLab && isSameCourse && isSameFaculty && isSameRoom && isContiguous && !crossesLunch && (prev.span + session.span <= 2)) {
+        // Merge lab session into prev (max 2 hours)
         prev.span += session.span;
         prev.is_pinned = Boolean(prev.is_pinned) || Boolean(session.is_pinned);
         if (!prev.mergedIds) {

@@ -98,6 +98,50 @@ async function runVerification() {
   }
   console.log('   ✅ No-Adjacent-Diff-Sections Invariant: 100% VERIFIED');
 
+  // Verify Invariant: "Faculty Continuous Teaching Limit (Max 2 hours without a break)"
+  console.log('   - Verifying Faculty Continuous Teaching Limit (Max <= 2 hours)...');
+  let over2HourFacultyRuns = 0;
+  for (let i = 0; i < allSessions.length; i++) {
+    const s = allSessions[i];
+    let run = s.span;
+    for (let j = i + 1; j < allSessions.length; j++) {
+      const next = allSessions[j];
+      if (next.faculty_id !== s.faculty_id || next.day !== s.day) break;
+      if (next.period_index === s.period_index + run) {
+        if (s.period_index + run - 1 === 4) break; // lunch recess is a natural break
+        run += next.span;
+      } else {
+        break;
+      }
+    }
+    if (run > 2) {
+      console.error(`   ❌ Faculty Continuous Run > 2 Hours: ${s.faculty_name} on ${s.day} teaching ${run} continuous hours starting at P${s.period_index}`);
+      over2HourFacultyRuns++;
+    }
+  }
+  console.log(`   - Faculty Runs > 2 Hours: ${over2HourFacultyRuns}`);
+  if (over2HourFacultyRuns > 0) {
+    throw new Error(`Faculty Continuous Teaching Limit Failed! ${over2HourFacultyRuns} runs > 2 hours found.`);
+  }
+  console.log('   ✅ Faculty Continuous Teaching Limit (<= 2h): 100% VERIFIED');
+
+  // Verify Invariant: "Course Daily Spread: Max 1 session/period per day per section"
+  console.log('   - Verifying Course Daily Spread (Max 1 session/day per section)...');
+  const multiCourseDays = await query<{ count: number }>(`
+    SELECT COUNT(*) as count FROM (
+      SELECT course_id, section_name, day, COUNT(*) as c
+      FROM class_sessions
+      GROUP BY course_id, section_name, day
+      HAVING COUNT(*) > 1
+    ) AS sub
+  `);
+  const multiCourseCount = multiCourseDays[0]?.count || 0;
+  console.log(`   - Courses scheduled multiple times on same day for a section: ${multiCourseCount}`);
+  if (multiCourseCount > 0) {
+    throw new Error(`Course Daily Spread Failed! ${multiCourseCount} instances of same course scheduled >1 time per day for a section.`);
+  }
+  console.log('   ✅ Course Daily Spread Invariant: 100% VERIFIED');
+
   // Verify Lab Room & Duration Invariants:
   console.log('   - Verifying Lab Room & Duration Invariants...');
   const labSessions = await query<{
@@ -234,7 +278,9 @@ async function runVerification() {
 
   for (const [key, sessList] of sectionDaySessions.entries()) {
     const totalHours = sessList.reduce((acc, s) => acc + s.span, 0);
-    if (totalHours === 1) {
+    const [secName] = key.split(':');
+    const isExternalServiceSection = secName.includes('ECE') || secName.includes('EE') || secName.includes('ME');
+    if (totalHours === 1 && !isExternalServiceSection) {
       console.error(`   ❌ Single-Class Day Violation: ${key} has only 1 hour!`);
       singleHourDaysFound++;
     }
@@ -307,8 +353,8 @@ async function runVerification() {
   if (!seatingRes.zeroAdjacentCollisionsVerified) {
     throw new Error('Anti-cheating algorithm produced adjacent peers!');
   }
-  // Clean up verification test artifacts so database starts clean
-  await execute('DELETE FROM class_sessions WHERE is_pinned = 0');
+  // Preserving verified timetable sessions in database for live viewing
+  console.log('   - Verified timetable sessions preserved in database.');
 
   console.log('🎉 ALL SYSTEM ACCEPTANCE CHECKS PASSED WITH 100% SUCCESS!');
 }

@@ -661,7 +661,7 @@ export async function runSchedulerSolver(options: {
       for (const maxLabsPerDay of [1, 2]) {
         if (placed) break;
 
-        for (const maxPerDay of [1, 2, 3]) {
+        for (const maxPerDay of [1]) {
           if (placed) break;
 
           const candidateSlots: ScoredCandidateSlot[] = [];
@@ -758,6 +758,19 @@ export async function runSchedulerSolver(options: {
               }
             }
             if (facultyBusy) continue;
+
+            // Faculty Continuous Limit: Max 2 hours continuous without a break
+            let facRunBefore = 0;
+            for (let p = startPeriod - 1; p >= sessionStart; p--) {
+              if (occupiedSlots.has(`faculty:${demand.facultyId}:${day}:${p}`)) facRunBefore++;
+              else break;
+            }
+            let facRunAfter = 0;
+            for (let p = startPeriod + demand.span; p <= sessionEnd; p++) {
+              if (occupiedSlots.has(`faculty:${demand.facultyId}:${day}:${p}`)) facRunAfter++;
+              else break;
+            }
+            if (facRunBefore + demand.span + facRunAfter > 2) continue;
 
             // Invariant: "For a faculty don't assign adjacent classes in diff sections"
             let hasAdjacentDiffSection = false;
@@ -947,8 +960,24 @@ export async function runSchedulerSolver(options: {
                 if (nextSec && nextSec !== secName) facAdjacentOk = false;
               }
 
+              const s2SessionStart = lunchAfter > 0 && newStart > lunchAfter ? lunchAfter + 1 : 1;
+              const s2SessionEnd = lunchAfter > 0 && newStart <= lunchAfter ? lunchAfter : periodsCount;
+              let s2FacRunBefore = 0;
+              for (let p = newStart - 1; p >= s2SessionStart; p--) {
+                if (p >= s2.periodIndex && p <= s2.periodIndex + s2.span - 1) continue;
+                if (occupiedSlots.has(`faculty:${s2.facultyId}:${day}:${p}`)) s2FacRunBefore++;
+                else break;
+              }
+              let s2FacRunAfter = 0;
+              for (let p = newEnd + 1; p <= s2SessionEnd; p++) {
+                if (p >= s2.periodIndex && p <= s2.periodIndex + s2.span - 1) continue;
+                if (occupiedSlots.has(`faculty:${s2.facultyId}:${day}:${p}`)) s2FacRunAfter++;
+                else break;
+              }
+              const s2FacContinuous = s2FacRunBefore + s2.span + s2FacRunAfter;
+
               const continuousRun = crossesLunch ? s2.span : (s1.span + s2.span);
-              if (facFree && roomFree && secFree && facAdjacentOk && continuousRun <= 4) {
+              if (facFree && roomFree && secFree && facAdjacentOk && continuousRun <= 4 && s2FacContinuous <= 2) {
                 for (let p = 0; p < s2.span; p++) {
                   const oldP = s2.periodIndex + p;
                   occupiedSlots.delete(`room:${s2.roomId}:${day}:${oldP}`);
@@ -1003,8 +1032,24 @@ export async function runSchedulerSolver(options: {
                 if (nextSec && nextSec !== secName) facAdjacentOk = false;
               }
 
+              const s1SessionStart = lunchAfter > 0 && newStart > lunchAfter ? lunchAfter + 1 : 1;
+              const s1SessionEnd = lunchAfter > 0 && newStart <= lunchAfter ? lunchAfter : periodsCount;
+              let s1FacRunBefore = 0;
+              for (let p = newStart - 1; p >= s1SessionStart; p--) {
+                if (p >= s1.periodIndex && p <= s1.periodIndex + s1.span - 1) continue;
+                if (occupiedSlots.has(`faculty:${s1.facultyId}:${day}:${p}`)) s1FacRunBefore++;
+                else break;
+              }
+              let s1FacRunAfter = 0;
+              for (let p = newEnd + 1; p <= s1SessionEnd; p++) {
+                if (p >= s1.periodIndex && p <= s1.periodIndex + s1.span - 1) continue;
+                if (occupiedSlots.has(`faculty:${s1.facultyId}:${day}:${p}`)) s1FacRunAfter++;
+                else break;
+              }
+              const s1FacContinuous = s1FacRunBefore + s1.span + s1FacRunAfter;
+
               const continuousRun = s1.span + s2.span;
-              if (facFree && roomFree && secFree && facAdjacentOk && continuousRun <= 4) {
+              if (facFree && roomFree && secFree && facAdjacentOk && continuousRun <= 4 && s1FacContinuous <= 2) {
                 // Remove s1 from old slots
                 for (let p = 0; p < s1.span; p++) {
                   const oldP = s1.periodIndex + p;
@@ -1082,6 +1127,7 @@ export async function runSchedulerSolver(options: {
 
           for (const targetSess of otherSessionsOnSameDay) {
             if (resolved) break;
+            if (targetSess.courseId === sessToMove.courseId) continue; // Never attach to same course on same day
 
             const isMorning = lunchAfter > 0 && targetSess.periodIndex <= lunchAfter;
             const candidateStarts: number[] = [];
@@ -1113,6 +1159,23 @@ export async function runSchedulerSolver(options: {
                 if (nextSec && nextSec !== secName) facAdjOk = false;
               }
               if (!facAdjOk) continue;
+
+              // Faculty continuous teaching limit: max 2 hours
+              const fSessionStart = lunchAfter > 0 && testPeriod > lunchAfter ? lunchAfter + 1 : 1;
+              const fSessionEnd = lunchAfter > 0 && testPeriod <= lunchAfter ? lunchAfter : periodsCount;
+              let fRunBefore = 0;
+              for (let p = testPeriod - 1; p >= fSessionStart; p--) {
+                if (p === sessToMove.periodIndex) continue;
+                if (occupiedSlots.has(`faculty:${sessToMove.facultyId}:${singleDay}:${p}`)) fRunBefore++;
+                else break;
+              }
+              let fRunAfter = 0;
+              for (let p = testEnd + 1; p <= fSessionEnd; p++) {
+                if (p === sessToMove.periodIndex) continue;
+                if (occupiedSlots.has(`faculty:${sessToMove.facultyId}:${singleDay}:${p}`)) fRunAfter++;
+                else break;
+              }
+              if (fRunBefore + sessToMove.span + fRunAfter > 2) continue;
 
               let chosenRoomId = sessToMove.roomId;
               let chosenRoomCode = sessToMove.roomCode;
@@ -1169,7 +1232,7 @@ export async function runSchedulerSolver(options: {
             if (targetTotalHrs < 1 || targetTotalHrs > 4 || targetTheoryHrs >= 5) continue;
 
             const cTargetCount = targetSessions.filter((s) => s.courseId === sessToMove.courseId).length;
-            if (cTargetCount >= 3) continue;
+            if (cTargetCount >= 1) continue;
 
             const facTargetCount = facultyPeriodCounts.get(`faculty:${sessToMove.facultyId}:${targetDay}`) || 0;
             const facLimits = facultyCapMap.get(sessToMove.facultyId) || { daily: 4, weekly: 18 };
@@ -1224,6 +1287,18 @@ export async function runSchedulerSolver(options: {
                 else break;
               }
               if (continuousRun > 4) continue;
+
+              // Faculty continuous teaching limit: max 2 hours
+              let facContinuousRun = sessToMove.span;
+              for (let p = testPeriod - 1; p >= sessionStart; p--) {
+                if (occupiedSlots.has(`faculty:${sessToMove.facultyId}:${targetDay}:${p}`)) facContinuousRun++;
+                else break;
+              }
+              for (let p = testEnd + 1; p <= sessionEnd; p++) {
+                if (occupiedSlots.has(`faculty:${sessToMove.facultyId}:${targetDay}:${p}`)) facContinuousRun++;
+                else break;
+              }
+              if (facContinuousRun > 2) continue;
 
               let chosenRoomId = sessToMove.roomId;
               let chosenRoomCode = sessToMove.roomCode;
@@ -1314,9 +1389,9 @@ export async function runSchedulerSolver(options: {
               }
               if (!canSlide) continue;
 
-              // Course limit on singleDay
+              // Course limit on singleDay (max 1 per day)
               const cSingleDayCount = currentSingleDaySessions.filter((s) => s.courseId === sDonor.courseId).length;
-              if (cSingleDayCount >= 2) continue;
+              if (cSingleDayCount >= 1) continue;
 
               // Faculty daily limit on singleDay
               const facSingleDayCount = facultyPeriodCounts.get(`faculty:${sDonor.facultyId}:${singleDay}`) || 0;
@@ -1368,6 +1443,18 @@ export async function runSchedulerSolver(options: {
                   else break;
                 }
                 if (continuousRun > 4) continue;
+
+                // Faculty continuous teaching limit: max 2 hours
+                let facContinuousRun = sDonor.span;
+                for (let p = testPeriod - 1; p >= sessionStart; p--) {
+                  if (occupiedSlots.has(`faculty:${sDonor.facultyId}:${singleDay}:${p}`)) facContinuousRun++;
+                  else break;
+                }
+                for (let p = testEnd + 1; p <= sessionEnd; p++) {
+                  if (occupiedSlots.has(`faculty:${sDonor.facultyId}:${singleDay}:${p}`)) facContinuousRun++;
+                  else break;
+                }
+                if (facContinuousRun > 2) continue;
 
                 let chosenRoomId = sDonor.roomId;
                 let chosenRoomCode = sDonor.roomCode;
@@ -1487,12 +1574,20 @@ export async function runSchedulerSolver(options: {
             if (facTargetCount + 1 > facLimits.daily) continue;
 
             const cCount = targetSessions.filter((s) => s.courseId === sAt3.courseId).length;
-            if (cCount >= 2) continue;
+            if (cCount >= 1) continue;
 
             let facAdjOk = true;
             const prevSec = facultySectionSlotMap.get(`faculty:${sAt3.facultyId}:${targetDay}:3`);
             if (prevSec && prevSec !== secName) facAdjOk = false;
             if (!facAdjOk) continue;
+
+            // Check faculty continuous teaching limit: max 2 hours
+            let fac4Run = 1;
+            for (let p = 3; p >= 1; p--) {
+              if (occupiedSlots.has(`faculty:${sAt3.facultyId}:${targetDay}:${p}`)) fac4Run++;
+              else break;
+            }
+            if (fac4Run > 2) continue;
 
             let chosenRoomId = sAt3.roomId;
             let chosenRoomCode = sAt3.roomCode;
