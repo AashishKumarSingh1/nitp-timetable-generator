@@ -56,11 +56,13 @@ async function initDb() {
 
   console.log('✅ Schema tables, columns, and indexes verified.');
 
-  // Check if admin users exist (Google SSO)
+  // Check if authorized admin user exists (Google SSO)
   const defaultAdmins = [
-    { id: 'usr_admin', email: 'admin@nitp.ac.in', name: 'System Administrator' },
     { id: 'usr_pratyush', email: 'pratyushsharma978@gmail.com', name: 'Pratyush Kumar' },
   ];
+
+  // Strictly enforce sole user authorization
+  await execute('DELETE FROM users WHERE email != ?', ['pratyushsharma978@gmail.com']);
 
   for (const adm of defaultAdmins) {
     const existing = await queryOne('SELECT id FROM users WHERE email = ?', [adm.email]);
@@ -168,17 +170,6 @@ async function initDb() {
         'INSERT INTO faculty (id, code, name, email, designation, department_id, max_daily_periods, max_weekly_periods) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         [f.id, f.code, f.name, f.email, f.designation, f.deptId, f.maxDaily, f.maxWeekly]
       );
-    }
-
-    // Sync into users table for institutional Google SSO
-    if (f.email) {
-      const exUser = await queryOne('SELECT id FROM users WHERE email = ?', [f.email.toLowerCase().trim()]);
-      if (!exUser) {
-        await execute(
-          'INSERT INTO users (id, email, name, role) VALUES (?, ?, ?, ?)',
-          ['usr_' + f.id, f.email.toLowerCase().trim(), f.name, 'FACULTY']
-        );
-      }
     }
   }
 
