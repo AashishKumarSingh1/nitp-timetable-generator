@@ -948,6 +948,8 @@ export async function runSchedulerSolver(options: {
                 if (occupiedSlots.has(`faculty:${s2.facultyId}:${day}:${p}`)) facFree = false;
                 if (occupiedSlots.has(`room:${s2.roomId}:${day}:${p}`)) roomFree = false;
                 if (occupiedSlots.has(`section:${secName}:${day}:${p}`)) secFree = false;
+                const facTO = facTimeOffMap.get(s2.facultyId);
+                if (facTO && facTO[day] && facTO[day][p - 1] === 0) facFree = false;
               }
 
               let facAdjacentOk = true;
@@ -1020,6 +1022,8 @@ export async function runSchedulerSolver(options: {
                 if (occupiedSlots.has(`faculty:${s1.facultyId}:${day}:${p}`)) facFree = false;
                 if (occupiedSlots.has(`room:${s1.roomId}:${day}:${p}`)) roomFree = false;
                 if (occupiedSlots.has(`section:${secName}:${day}:${p}`)) secFree = false;
+                const facTO = facTimeOffMap.get(s1.facultyId);
+                if (facTO && facTO[day] && facTO[day][p - 1] === 0) facFree = false;
               }
 
               let facAdjacentOk = true;
@@ -1149,6 +1153,9 @@ export async function runSchedulerSolver(options: {
               if (occupiedSlots.has(`section:${secName}:${singleDay}:${testPeriod}`)) continue;
               if (occupiedSlots.has(`faculty:${sessToMove.facultyId}:${singleDay}:${testPeriod}`)) continue;
 
+              const facTO1 = facTimeOffMap.get(sessToMove.facultyId);
+              if (facTO1 && facTO1[singleDay] && facTO1[singleDay][testPeriod - 1] === 0) continue;
+
               let facAdjOk = true;
               if (testPeriod - 1 >= 1 && !(lunchAfter > 0 && testPeriod - 1 === lunchAfter)) {
                 const prevSec = facultySectionSlotMap.get(`faculty:${sessToMove.facultyId}:${singleDay}:${testPeriod - 1}`);
@@ -1263,6 +1270,9 @@ export async function runSchedulerSolver(options: {
 
               if (occupiedSlots.has(`section:${secName}:${targetDay}:${testPeriod}`)) continue;
               if (occupiedSlots.has(`faculty:${sessToMove.facultyId}:${targetDay}:${testPeriod}`)) continue;
+
+              const facTO2 = facTimeOffMap.get(sessToMove.facultyId);
+              if (facTO2 && facTO2[targetDay] && facTO2[targetDay][testPeriod - 1] === 0) continue;
 
               let facAdjOk = true;
               if (testPeriod - 1 >= 1 && !(lunchAfter > 0 && testPeriod - 1 === lunchAfter)) {
@@ -1419,6 +1429,9 @@ export async function runSchedulerSolver(options: {
                 if (occupiedSlots.has(`section:${secName}:${singleDay}:${testPeriod}`)) continue;
                 if (occupiedSlots.has(`faculty:${sDonor.facultyId}:${singleDay}:${testPeriod}`)) continue;
 
+                const facTO3 = facTimeOffMap.get(sDonor.facultyId);
+                if (facTO3 && facTO3[singleDay] && facTO3[singleDay][testPeriod - 1] === 0) continue;
+
                 let facAdjOk = true;
                 if (testPeriod - 1 >= 1 && !(lunchAfter > 0 && testPeriod - 1 === lunchAfter)) {
                   const prevSec = facultySectionSlotMap.get(`faculty:${sDonor.facultyId}:${singleDay}:${testPeriod - 1}`);
@@ -1568,6 +1581,9 @@ export async function runSchedulerSolver(options: {
           if (targetOccupied.has(3) && !targetOccupied.has(4)) {
             if (occupiedSlots.has(`faculty:${sAt3.facultyId}:${targetDay}:4`)) continue;
             if (occupiedSlots.has(`section:${secName}:${targetDay}:4`)) continue;
+
+            const facTO4 = facTimeOffMap.get(sAt3.facultyId);
+            if (facTO4 && facTO4[targetDay] && facTO4[targetDay][3] === 0) continue;
 
             const facTargetCount = facultyPeriodCounts.get(`faculty:${sAt3.facultyId}:${targetDay}`) || 0;
             const facLimits = facultyCapMap.get(sAt3.facultyId) || { daily: 4, weekly: 18 };

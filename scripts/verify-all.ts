@@ -142,6 +142,47 @@ async function runVerification() {
   }
   console.log('   ✅ Course Daily Spread Invariant: 100% VERIFIED');
 
+  // Verify Invariant: "Faculty Time-Off Availability Invariant: 0 sessions in blocked (0) slots"
+  console.log('   - Verifying Faculty Time-Off Invariant (0 sessions in blocked slots)...');
+  const allSessionsWithTimeOff = await query<{
+    id: string;
+    day: string;
+    period_index: number;
+    span: number;
+    faculty_name: string;
+    course_code: string;
+    time_off: string;
+  }>(`
+    SELECT cs.id, cs.day, cs.period_index, cs.span, f.name as faculty_name, c.code as course_code, f.time_off
+    FROM class_sessions cs
+    JOIN faculty f ON cs.faculty_id = f.id
+    JOIN courses c ON cs.course_id = c.id
+    WHERE f.time_off IS NOT NULL
+  `);
+
+  let timeOffViolations = 0;
+  for (const s of allSessionsWithTimeOff) {
+    try {
+      const parsed = JSON.parse(s.time_off);
+      const dayArr = parsed[s.day];
+      if (Array.isArray(dayArr)) {
+        for (let p = s.period_index; p < s.period_index + (s.span || 1); p++) {
+          if (dayArr[p - 1] === 0) {
+            timeOffViolations++;
+            console.error(`   ❌ Time-Off Violation: ${s.faculty_name} has ${s.course_code} on ${s.day} Period ${p} (marked Blocked)`);
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  console.log(`   - Faculty Time-Off Violations: ${timeOffViolations}`);
+  if (timeOffViolations > 0) {
+    throw new Error(`Faculty Time-Off Invariant Failed! Found ${timeOffViolations} sessions scheduled during blocked periods.`);
+  }
+  console.log('   ✅ Faculty Time-Off Invariant: 100% VERIFIED');
+
   // Verify Lab Room & Duration Invariants:
   console.log('   - Verifying Lab Room & Duration Invariants...');
   const labSessions = await query<{
