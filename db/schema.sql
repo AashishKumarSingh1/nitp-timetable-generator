@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS courses (
     code VARCHAR(50) NOT NULL UNIQUE, -- e.g. 'CS301'
     name VARCHAR(255) NOT NULL,
     department_id VARCHAR(36) NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
+    semester INT NOT NULL DEFAULT 1,
     periods_per_week INT NOT NULL DEFAULT 3,
     span INT NOT NULL DEFAULT 1,       -- 1 for theory, 2-3 for lab sessions
     lesson_format VARCHAR(20) DEFAULT '1_AT_A_TIME', -- '1_AT_A_TIME', '1_AND_2_MIX', '2_AT_A_TIME', '3_AT_A_TIME'

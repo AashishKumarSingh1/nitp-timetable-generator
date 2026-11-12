@@ -1,0 +1,100 @@
+name: CI - Quality & Timetable Verification
+
+on:
+  push:
+    branches:
+      - master
+      - main
+      - pratyush-001-tt
+  pull_request:
+    branches:
+      - master
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck-and-build:
+    name: TypeScript Check & Next.js Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci || npm install
+
+      - name: Type Check (tsc)
+        run: npx tsc --noEmit
+
+      - name: Next.js Production Build
+        run: npm run build
+        env:
+          NODE_ENV: production
+          DATABASE_URL: 'mysql://root:rootpassword@127.0.0.1:3306/timetable_nitp'
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: 3306
+          MYSQL_DATABASE: timetable_nitp
+          MYSQL_USERNAME: root
+          MYSQL_PASSWORD: rootpassword
+          MYSQL_SSL: 'false'
+          GOOGLE_CLIENT_ID: dummy_google_client_id_for_ci
+          GOOGLE_CLIENT_SECRET: dummy_google_client_secret_for_ci
+          JWT_SECRET: dummy_jwt_secret_for_ci_build_test_only_min_32_chars
+
+  invariants-and-solver-test:
+    name: MySQL Database & Timetable Solver Invariants
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpassword
+          MYSQL_DATABASE: timetable_nitp
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci || npm install
+
+      - name: Initialize Database Schema & Starter Entities
+        run: npm run db:init
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: 3306
+          MYSQL_DATABASE: timetable_nitp
+          MYSQL_USERNAME: root
+          MYSQL_PASSWORD: rootpassword
+          MYSQL_SSL: 'false'
+          DATABASE_URL: 'mysql://root:rootpassword@127.0.0.1:3306/timetable_nitp'
+          JWT_SECRET: dummy_jwt_secret_for_ci_build_test_only_min_32_chars
+
+      - name: Execute Full Timetable Solver & Anti-Cheating Invariant Suite
+        run: npm run verify
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: 3306
+          MYSQL_DATABASE: timetable_nitp
+          MYSQL_USERNAME: root
+          MYSQL_PASSWORD: rootpassword
+          MYSQL_SSL: 'false'
+          DATABASE_URL: 'mysql://root:rootpassword@127.0.0.1:3306/timetable_nitp'
+          JWT_SECRET: dummy_jwt_secret_for_ci_build_test_only_min_32_chars
