@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import bcrypt from 'bcryptjs';
+import crypto from 'node:crypto';
 import { query, execute, queryOne } from '../lib/db';
 
 async function initDb() {
@@ -15,15 +15,23 @@ async function initDb() {
     .filter((s) => s.length > 0);
 
   for (const stmt of statements) {
+    const executableStmt = stmt.replace(/CREATE INDEX IF NOT EXISTS/gi, 'CREATE INDEX');
     try {
-      await execute(stmt);
+      await execute(executableStmt);
     } catch (err: any) {
-      console.warn(`[Warning running statement] ${err.message}`);
+      // In MySQL, duplicate index or table exists warning is expected
+      if (!err.message?.includes('Duplicate key name') && !err.message?.includes('already exists')) {
+        console.warn(`[Notice running statement] ${err.message}`);
+      }
     }
   }
 
   // Safe incremental schema column additions
   const migrations = [
+    'ALTER TABLE users DROP COLUMN password_hash',
+    'ALTER TABLE users ADD COLUMN google_id VARCHAR(255) NULL',
+    'ALTER TABLE users ADD COLUMN avatar_url TEXT NULL',
+    'ALTER TABLE users ADD COLUMN last_login TIMESTAMP NULL',
     'ALTER TABLE rooms ADD COLUMN time_off TEXT DEFAULT NULL',
     'ALTER TABLE rooms ADD COLUMN color VARCHAR(20) DEFAULT NULL',
     'ALTER TABLE faculty ADD COLUMN time_off TEXT DEFAULT NULL',
@@ -48,65 +56,70 @@ async function initDb() {
 
   console.log('✅ Schema tables, columns, and indexes verified.');
 
-  // Check if admin user exists
-  const existingAdmin = await queryOne('SELECT id FROM users WHERE email = ?', ['admin@nitp.ac.in']);
-  if (!existingAdmin) {
-    const adminId = 'usr_' + Math.random().toString(36).substring(2, 11);
-    const passwordHash = await bcrypt.hash('AdminPassword123!', 10);
-    await execute(
-      'INSERT INTO users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)',
-      [adminId, 'admin@nitp.ac.in', passwordHash, 'System Administrator', 'ADMIN']
-    );
-    console.log('✅ Default Admin created: admin@nitp.ac.in / AdminPassword123!');
+  // Check if authorized admin user exists (Google SSO)
+  const defaultAdmins = [
+    { id: 'usr_pratyush', email: 'pratyushsharma978@gmail.com', name: 'Pratyush Kumar' },
+  ];
+
+  // Strictly enforce sole user authorization
+  await execute('DELETE FROM users WHERE email != ?', ['pratyushsharma978@gmail.com']);
+
+  for (const adm of defaultAdmins) {
+    const existing = await queryOne('SELECT id FROM users WHERE email = ?', [adm.email]);
+    if (!existing) {
+      await execute(
+        'INSERT INTO users (id, email, name, role) VALUES (?, ?, ?, ?)',
+        [adm.id, adm.email, adm.name, 'ADMIN']
+      );
+      console.log(`✅ Authorized Admin created: ${adm.email}`);
+    }
   }
 
-  // 2. Departments
-  console.log('🏛️ Seeding departments...');
+  // 1. Clean out stale synthetic schedules, dummy allocations, and courses
+  console.log('🧹 Purging any old synthetic dummy data from database...');
+  await execute('DELETE FROM class_sessions');
+  await execute('DELETE FROM teaching_assignments');
+  await execute("DELETE FROM sections WHERE academic_year != '2025-26'");
+  await execute("DELETE FROM courses WHERE id LIKE 'crs_%'");
+  await execute("DELETE FROM faculty WHERE id LIKE 'fac_1' OR id LIKE 'fac_2' OR id LIKE 'fac_3' OR id LIKE 'fac_4' OR id LIKE 'fac_5' OR id LIKE 'fac_6' OR id LIKE 'fac_ce_%' OR id LIKE 'fac_me_%' OR id LIKE 'fac_ee_%' OR id LIKE 'fac_ec_%' OR id LIKE 'fac_cs_%'");
+
+  // 2. Authentic Departments
+  console.log('🏛️ Seeding institutional departments...');
   const depts = [
     { id: 'dept_cse', name: 'Computer Science & Engineering', code: 'CSE' },
     { id: 'dept_ece', name: 'Electronics & Communication Engineering', code: 'ECE' },
-    { id: 'dept_mech', name: 'Mechanical Engineering', code: 'MECH' },
-    { id: 'dept_ee', name: 'Electrical Engineering', code: 'EE' },
-    { id: 'dept_ce', name: 'Civil Engineering', code: 'CE' },
   ];
   for (const d of depts) {
     const ex = await queryOne('SELECT id FROM departments WHERE id = ? OR code = ?', [d.id, d.code]);
     if (!ex) {
       await execute('INSERT INTO departments (id, name, code) VALUES (?, ?, ?)', [d.id, d.name, d.code]);
+    } else {
+      await execute('UPDATE departments SET name = ?, code = ? WHERE id = ?', [d.name, d.code, ex.id]);
     }
   }
 
-  // 3. Rooms: 12 Dedicated Theory Home Classrooms + 2 Auditoriums + 10 Specialized Labs
+  // 3. Rooms: Dedicated Theory Classrooms + Specialized Computer/Engineering Labs
   console.log('🏢 Seeding dedicated home classrooms and specialized engineering labs...');
   const rooms = [
     // Dedicated Theory Home Classrooms (1 per cohort)
-    { id: 'rm_101', code: 'LH-101', name: 'Aryabhatta Lecture Hall', building: 'Main Academic Block', floor: 1, type: 'LECTURE_HALL', rows: 6, cols: 6, capacity: 60, deptId: 'dept_cse' },
-    { id: 'rm_102', code: 'LH-102', name: 'Ramanujan Theatre', building: 'Main Academic Block', floor: 1, type: 'LECTURE_HALL', rows: 6, cols: 6, capacity: 60, deptId: 'dept_cse' },
-    { id: 'rm_103', code: 'LH-103', name: 'Charles Babbage Hall', building: 'Main Academic Block', floor: 2, type: 'LECTURE_HALL', rows: 6, cols: 6, capacity: 50, deptId: 'dept_cse' },
-    { id: 'rm_104', code: 'LH-104', name: 'JC Bose Lecture Hall', building: 'ECE Block', floor: 1, type: 'LECTURE_HALL', rows: 6, cols: 6, capacity: 60, deptId: 'dept_ece' },
-    { id: 'rm_ec2', code: 'CR-EC-2', name: 'Vikram Sarabhai Hall', building: 'ECE Block', floor: 2, type: 'CLASSROOM', rows: 6, cols: 6, capacity: 60, deptId: 'dept_ece' },
-    { id: 'rm_me1', code: 'CR-ME-1', name: 'Mechanical Class Hall 1', building: 'Mechanical Block', floor: 1, type: 'CLASSROOM', rows: 6, cols: 6, capacity: 60, deptId: 'dept_mech' },
-    { id: 'rm_me2', code: 'CR-ME-2', name: 'Mechanical Class Hall 2', building: 'Mechanical Block', floor: 2, type: 'CLASSROOM', rows: 6, cols: 6, capacity: 60, deptId: 'dept_mech' },
-    { id: 'rm_ee1', code: 'CR-EE-1', name: 'Electrical Class Hall 1', building: 'EE Block', floor: 1, type: 'CLASSROOM', rows: 6, cols: 5, capacity: 30, deptId: 'dept_ee' },
-    { id: 'rm_ee2', code: 'CR-EE-2', name: 'Electrical Class Hall 2', building: 'EE Block', floor: 2, type: 'CLASSROOM', rows: 6, cols: 6, capacity: 60, deptId: 'dept_ee' },
-    { id: 'rm_ce1', code: 'CR-CE-1', name: 'Civil Class Hall 1', building: 'Civil Block', floor: 1, type: 'CLASSROOM', rows: 6, cols: 5, capacity: 30, deptId: 'dept_ce' },
-    { id: 'rm_ce2', code: 'CR-CE-2', name: 'Civil Class Hall 2', building: 'Civil Block', floor: 2, type: 'CLASSROOM', rows: 6, cols: 6, capacity: 60, deptId: 'dept_ce' },
-    { id: 'rm_ce3', code: 'CR-CE-3', name: 'Civil Class Hall 3', building: 'Civil Block', floor: 3, type: 'CLASSROOM', rows: 6, cols: 6, capacity: 65, deptId: 'dept_ce' },
-    // Seminar & Conference Halls
-    { id: 'rm_201', code: 'CR-201', name: 'Main Seminar Hall 201', building: 'Block B', floor: 2, type: 'CLASSROOM', rows: 6, cols: 6, capacity: 50, deptId: 'dept_mech' },
-    { id: 'rm_sh', code: 'SH-301', name: 'Sir Visvesvaraya Auditorium', building: 'Convention Block', floor: 3, type: 'SEMINAR_HALL', rows: 8, cols: 8, capacity: 80, deptId: null },
-    // Specialized Engineering & Computing Labs for Practical Sessions
-    { id: 'rm_lab1', code: 'CS-LAB-1', name: 'Alan Turing Computing Lab', building: 'IT Centre', floor: 3, type: 'COMPUTER_LAB', rows: 6, cols: 6, capacity: 40, deptId: 'dept_cse' },
-    { id: 'rm_cs_lab2', code: 'CS-LAB-2', name: 'Ada Lovelace Systems Lab', building: 'IT Centre', floor: 3, type: 'COMPUTER_LAB', rows: 6, cols: 6, capacity: 40, deptId: 'dept_cse' },
-    { id: 'rm_lab2', code: 'EC-LAB-1', name: 'VLSI & Embedded Lab', building: 'ECE Block', floor: 2, type: 'COMPUTER_LAB', rows: 6, cols: 5, capacity: 40, deptId: 'dept_ece' },
-    { id: 'rm_ec_lab2', code: 'EC-LAB-2', name: 'DSP & Signal Processing Lab', building: 'ECE Block', floor: 2, type: 'COMPUTER_LAB', rows: 6, cols: 5, capacity: 40, deptId: 'dept_ece' },
-    { id: 'rm_me_lab1', code: 'ME-LAB-1', name: 'Computational Mechanics & CAD Lab', building: 'Mechanical Block', floor: 1, type: 'COMPUTER_LAB', rows: 6, cols: 5, capacity: 40, deptId: 'dept_mech' },
-    { id: 'rm_me_lab2', code: 'ME-LAB-2', name: 'Fluid Mechanics & Machinery Lab', building: 'Mechanical Block', floor: 1, type: 'COMPUTER_LAB', rows: 6, cols: 5, capacity: 40, deptId: 'dept_mech' },
-    { id: 'rm_ee_lab1', code: 'EE-LAB-1', name: 'Power Simulation & Drives Lab', building: 'EE Block', floor: 1, type: 'COMPUTER_LAB', rows: 6, cols: 5, capacity: 40, deptId: 'dept_ee' },
-    { id: 'rm_ee_lab2', code: 'EE-LAB-2', name: 'Control Systems Simulation Lab', building: 'EE Block', floor: 2, type: 'COMPUTER_LAB', rows: 6, cols: 5, capacity: 40, deptId: 'dept_ee' },
-    { id: 'rm_ce_lab1', code: 'CE-LAB-1', name: 'Concrete & Materials Testing Lab', building: 'Civil Block', floor: 1, type: 'COMPUTER_LAB', rows: 6, cols: 5, capacity: 40, deptId: 'dept_ce' },
-    { id: 'rm_ce_lab2', code: 'CE-LAB-2', name: 'Civil CAD & Geotechnical Lab', building: 'Civil Block', floor: 2, type: 'COMPUTER_LAB', rows: 6, cols: 5, capacity: 40, deptId: 'dept_ce' },
+    { id: 'rm_lh101', code: 'LH-101', name: 'Aryabhatta Lecture Hall', building: 'Main Academic Block', floor: 1, type: 'LECTURE_HALL', rows: 6, cols: 6, capacity: 80, deptId: 'dept_cse' },
+    { id: 'rm_lh102', code: 'LH-102', name: 'Ramanujan Theatre', building: 'Main Academic Block', floor: 1, type: 'LECTURE_HALL', rows: 6, cols: 6, capacity: 80, deptId: 'dept_cse' },
+    { id: 'rm_lh103', code: 'LH-103', name: 'Charles Babbage Hall', building: 'Main Academic Block', floor: 2, type: 'LECTURE_HALL', rows: 6, cols: 6, capacity: 80, deptId: 'dept_cse' },
+    { id: 'rm_lh104', code: 'LH-104', name: 'JC Bose Lecture Hall', building: 'Main Academic Block', floor: 2, type: 'LECTURE_HALL', rows: 6, cols: 6, capacity: 80, deptId: 'dept_cse' },
+    { id: 'rm_cr201', code: 'CR-201', name: 'Lecture Room 201', building: 'Academic Block B', floor: 2, type: 'CLASSROOM', rows: 6, cols: 6, capacity: 80, deptId: 'dept_cse' },
+    { id: 'rm_cr202', code: 'CR-202', name: 'Lecture Room 202', building: 'Academic Block B', floor: 2, type: 'CLASSROOM', rows: 6, cols: 6, capacity: 80, deptId: 'dept_cse' },
+    { id: 'rm_cr301', code: 'CR-301', name: 'PG Lecture Hall 301', building: 'Academic Block B', floor: 3, type: 'CLASSROOM', rows: 6, cols: 6, capacity: 40, deptId: 'dept_cse' },
+    { id: 'rm_cr302', code: 'CR-302', name: 'PG Lecture Hall 302', building: 'Academic Block B', floor: 3, type: 'CLASSROOM', rows: 6, cols: 6, capacity: 40, deptId: 'dept_cse' },
+    { id: 'rm_ec1', code: 'CR-EC-1', name: 'ECE Lecture Hall 1', building: 'ECE Block', floor: 1, type: 'CLASSROOM', rows: 6, cols: 6, capacity: 75, deptId: 'dept_ece' },
+    { id: 'rm_ec2', code: 'CR-EC-2', name: 'ECE Lecture Hall 2', building: 'ECE Block', floor: 2, type: 'CLASSROOM', rows: 6, cols: 6, capacity: 75, deptId: 'dept_ece' },
+
+    // Specialized Computing & Practical Labs (Exclusively for Labs)
+    { id: 'rm_lab1', code: 'CS-LAB-1', name: 'Alan Turing Computing Lab', building: 'IT Centre', floor: 3, type: 'COMPUTER_LAB', rows: 6, cols: 6, capacity: 45, deptId: 'dept_cse' },
+    { id: 'rm_cs_lab2', code: 'CS-LAB-2', name: 'Ada Lovelace Systems Lab', building: 'IT Centre', floor: 3, type: 'COMPUTER_LAB', rows: 6, cols: 6, capacity: 45, deptId: 'dept_cse' },
+    { id: 'rm_ec_lab1', code: 'EC-LAB-1', name: 'VLSI & Hardware Lab', building: 'ECE Block', floor: 2, type: 'COMPUTER_LAB', rows: 6, cols: 5, capacity: 40, deptId: 'dept_ece' },
+    { id: 'rm_ec_lab2', code: 'EC-LAB-2', name: 'DSP & Embedded Systems Lab', building: 'ECE Block', floor: 2, type: 'COMPUTER_LAB', rows: 6, cols: 5, capacity: 40, deptId: 'dept_ece' },
   ];
+
   for (const r of rooms) {
     const ex = await queryOne('SELECT id FROM rooms WHERE id = ? OR code = ?', [r.id, r.code]);
     if (ex) {
@@ -122,47 +135,30 @@ async function initDb() {
     }
   }
 
-  // 4. Faculty (27 professors across 5 departments)
-  console.log('👨‍🏫 Seeding faculty directory with balanced caps...');
-  const facultyList = [
-    // CSE Faculty
-    { id: 'fac_1', code: 'FAC-CS-01', name: 'Dr. Rajesh Sharma', email: 'rsharma@nitp.ac.in', designation: 'Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_2', code: 'FAC-CS-02', name: 'Dr. Anita Sen', email: 'asen@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_cs_3', code: 'FAC-CS-03', name: 'Dr. Alok Kumar', email: 'akumar@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_cs_4', code: 'FAC-CS-04', name: 'Dr. Neha Kumari', email: 'nkumari@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_cs_5', code: 'FAC-CS-05', name: 'Prof. Abhishek Anand', email: 'aanand@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_cs_6', code: 'FAC-CS-06', name: 'Dr. Sweta Sinha', email: 'ssinha@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
-
-    // ECE Faculty
-    { id: 'fac_3', code: 'FAC-EC-01', name: 'Prof. Vikram Roy', email: 'vroy@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_ece', maxDaily: 4, maxWeekly: 16 },
-    { id: 'fac_ec_2', code: 'FAC-EC-02', name: 'Dr. Priya Ranjan', email: 'pranjan@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_ece', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_ec_3', code: 'FAC-EC-03', name: 'Dr. Arvind Kumar', email: 'akumar.ec@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_ece', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_ec_4', code: 'FAC-EC-04', name: 'Prof. Shalini Singh', email: 'ssingh@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_ece', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_ec_5', code: 'FAC-EC-05', name: 'Dr. Manish Tiwari', email: 'mtiwari@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_ece', maxDaily: 4, maxWeekly: 18 },
-
-    // MECH Faculty
-    { id: 'fac_4', code: 'FAC-ME-01', name: 'Dr. Manoj Verma', email: 'mverma@nitp.ac.in', designation: 'Professor', deptId: 'dept_mech', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_me_2', code: 'FAC-ME-02', name: 'Prof. Sanjay Gupta', email: 'sgupta@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_mech', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_me_3', code: 'FAC-ME-03', name: 'Dr. R. K. Singh', email: 'rksingh@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_mech', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_me_4', code: 'FAC-ME-04', name: 'Prof. Deepak Verma', email: 'dverma@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_mech', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_me_5', code: 'FAC-ME-05', name: 'Dr. Ankit Mishra', email: 'amishra@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_mech', maxDaily: 4, maxWeekly: 18 },
-
-    // EE Faculty
-    { id: 'fac_5', code: 'FAC-EE-01', name: 'Dr. Sunita Rao', email: 'srao@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_ee', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_ee_2', code: 'FAC-EE-02', name: 'Prof. Rajiv Nayan', email: 'rnayan@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_ee', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_ee_3', code: 'FAC-EE-03', name: 'Dr. K. S. Verma', email: 'ksverma@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_ee', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_ee_4', code: 'FAC-EE-04', name: 'Prof. Ananya Roy', email: 'aroy@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_ee', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_ee_5', code: 'FAC-EE-05', name: 'Dr. Vivek Prakash', email: 'vprakash@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_ee', maxDaily: 4, maxWeekly: 18 },
-
-    // CE Faculty
-    { id: 'fac_6', code: 'FAC-CE-01', name: 'Prof. Amit Patel', email: 'apatel@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_ce', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_ce_2', code: 'FAC-CE-02', name: 'Dr. Sunita Mishra', email: 'smishra@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_ce', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_ce_3', code: 'FAC-CE-03', name: 'Prof. Ramesh Chandra', email: 'rchandra@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_ce', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_ce_4', code: 'FAC-CE-04', name: 'Dr. Vibha Sharma', email: 'vsharma@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_ce', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_ce_5', code: 'FAC-CE-05', name: 'Prof. K. K. Choudhary', email: 'kchoudhary@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_ce', maxDaily: 4, maxWeekly: 18 },
-    { id: 'fac_ce_6', code: 'FAC-CE-06', name: 'Dr. Pradeep Kumar', email: 'pkumar@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_ce', maxDaily: 4, maxWeekly: 18 },
+  // 4. Real CSE Faculty Members (18 Authentic Faculty Members from Bihta Campus)
+  console.log('👨‍🏫 Seeding authentic NIT Patna Bihta faculty directory...');
+  const realFaculty = [
+    { id: 'fac_cse_aks', code: 'FAC-CSE-AKS', name: 'Dr. Amit Kumar Singh', email: 'aksingh@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_mps', code: 'FAC-CSE-MPS', name: 'Prof. M. P. Singh', email: 'mps@nitp.ac.in', designation: 'Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 16 },
+    { id: 'fac_cse_jps', code: 'FAC-CSE-JPS', name: 'Dr. J .P. Singh', email: 'jps@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_upr', code: 'FAC-CSE-UPR', name: 'Dr. Udai Pratap Rao', email: 'udai@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_kc',  code: 'FAC-CSE-KC',  name: 'Dr. Kakali Chatterjee', email: 'kakali@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_akd', code: 'FAC-CSE-AKD', name: 'Dr. Anil Kumar Dudyala', email: 'anild@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_dd',  code: 'FAC-CSE-DD',  name: 'Dr. Dinesh Dash', email: 'ddash@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_sd',  code: 'FAC-CSE-SD',  name: 'Dr. Suddhasil De', email: 'suddhasil@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_ss',  code: 'FAC-CSE-SS',  name: 'Dr. Somaraju Suvvari', email: 'somaraju@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_mk',  code: 'FAC-CSE-MK',  name: 'Dr. Mukesh Kumar', email: 'mukesh.kumar@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_bm',  code: 'FAC-CSE-BM',  name: 'Dr. Bhaskar Mandal', email: 'bhaskar@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_ds',  code: 'FAC-CSE-DS',  name: 'Dr. Ditipriya Sinha', email: 'ditipriya@nitp.ac.in', designation: 'Associate Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_bbn', code: 'FAC-CSE-BBN', name: 'Dr. B. Balaji Naik', email: 'balajinaik@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_kks', code: 'FAC-CSE-KKS', name: 'Dr. Krishna Kumar Sethi', email: 'kksethi@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_ag',  code: 'FAC-CSE-AG',  name: 'Dr. Antriksh Goswami', email: 'antriksh@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_skt', code: 'FAC-CSE-SKT', name: 'Dr. Santosh Kumar Tripathy', email: 'sktripathy@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_ak',  code: 'FAC-CSE-AK',  name: 'Dr. Abhimanyu Kumar', email: 'abhimanyu@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
+    { id: 'fac_cse_dm',  code: 'FAC-CSE-DM',  name: 'Dr. Dashrath Mahto', email: 'dmahto@nitp.ac.in', designation: 'Assistant Professor', deptId: 'dept_cse', maxDaily: 4, maxWeekly: 18 },
   ];
-  for (const f of facultyList) {
+
+  for (const f of realFaculty) {
     const ex = await queryOne('SELECT id FROM faculty WHERE id = ? OR code = ? OR email = ?', [f.id, f.code, f.email]);
     if (ex) {
       await execute(
@@ -177,217 +173,177 @@ async function initDb() {
     }
   }
 
-  // 5. Courses (6 courses per department: 4 theory courses + 2 practical lab courses)
-  console.log('📚 Seeding 5-6 academic courses per department...');
-  const courses = [
-    // CSE Courses (6 subjects)
-    { id: 'crs_cs1', code: 'CS301', name: 'Database Management Systems', deptId: 'dept_cse', periods: 3, span: 1 },
-    { id: 'crs_cs2', code: 'CS302', name: 'Operating Systems & Architecture', deptId: 'dept_cse', periods: 3, span: 1 },
-    { id: 'crs_cs3', code: 'CS303', name: 'Design & Analysis of Algorithms', deptId: 'dept_cse', periods: 3, span: 1 },
-    { id: 'crs_cs4', code: 'CS304', name: 'Computer Networks & Security', deptId: 'dept_cse', periods: 3, span: 1 },
-    { id: 'crs_cs5l', code: 'CS305L', name: 'Database Engineering Lab', deptId: 'dept_cse', periods: 2, span: 2 },
-    { id: 'crs_cs6l', code: 'CS306L', name: 'Networks & Systems Simulation Lab', deptId: 'dept_cse', periods: 2, span: 2 },
-    { id: 'crs_cs_ai', code: 'CS901', name: 'Advanced AI Architectures', deptId: 'dept_cse', periods: 3, span: 1 },
+  // 5. Authentic Academic Sections (10 Even Semester Sections)
+  console.log('👥 Seeding 10 Even Semester academic sections...');
+  const realSections = [
+    // 4th Sem B.Tech (UG 2nd Year)
+    { id: 'sec_cse_4a', name: 'CSE-I (Sem 4)', department_id: 'dept_cse', semester: 4, strength: 80, academic_year: '2025-26' },
+    { id: 'sec_cse_4b', name: 'CSE-II (Sem 4)', department_id: 'dept_cse', semester: 4, strength: 80, academic_year: '2025-26' },
+    { id: 'sec_cse_4c', name: 'CSE-III+DD (Sem 4)', department_id: 'dept_cse', semester: 4, strength: 80, academic_year: '2025-26' },
 
-    // ECE Courses (6 subjects)
-    { id: 'crs_ec1', code: 'EC301', name: 'Digital Signal Processing', deptId: 'dept_ece', periods: 3, span: 1 },
-    { id: 'crs_ec2', code: 'EC302', name: 'Communication Systems Engineering', deptId: 'dept_ece', periods: 3, span: 1 },
-    { id: 'crs_ec3', code: 'EC303', name: 'Microprocessors & Microcontrollers', deptId: 'dept_ece', periods: 3, span: 1 },
-    { id: 'crs_ec4', code: 'EC304', name: 'Electromagnetic Waves & Antennas', deptId: 'dept_ece', periods: 3, span: 1 },
-    { id: 'crs_ec5l', code: 'EC305L', name: 'VLSI & Embedded Systems Lab', deptId: 'dept_ece', periods: 2, span: 2 },
-    { id: 'crs_ec6l', code: 'EC306L', name: 'DSP & Communication Hardware Lab', deptId: 'dept_ece', periods: 2, span: 2 },
+    // 6th Sem B.Tech (UG 3rd Year)
+    { id: 'sec_cse_6a', name: 'CSE-I (Sem 6)', department_id: 'dept_cse', semester: 6, strength: 75, academic_year: '2025-26' },
+    { id: 'sec_cse_6b', name: 'CSE-II (Sem 6)', department_id: 'dept_cse', semester: 6, strength: 75, academic_year: '2025-26' },
+    { id: 'sec_cse_6c', name: 'CSE-III+DD (Sem 6)', department_id: 'dept_cse', semester: 6, strength: 75, academic_year: '2025-26' },
 
-    // MECH Courses (6 subjects)
-    { id: 'crs_me1', code: 'ME301', name: 'Thermodynamics & Fluid Dynamics', deptId: 'dept_mech', periods: 3, span: 1 },
-    { id: 'crs_me2', code: 'ME302', name: 'Manufacturing Processes & Metrology', deptId: 'dept_mech', periods: 3, span: 1 },
-    { id: 'crs_me3', code: 'ME303', name: 'Kinematics & Dynamics of Machines', deptId: 'dept_mech', periods: 3, span: 1 },
-    { id: 'crs_me4', code: 'ME304', name: 'Mechanics of Materials & Structures', deptId: 'dept_mech', periods: 3, span: 1 },
-    { id: 'crs_me5l', code: 'ME305L', name: 'Fluid Mechanics & Machinery Lab', deptId: 'dept_mech', periods: 2, span: 2 },
-    { id: 'crs_me6l', code: 'ME306L', name: 'CAD & Finite Element Modeling Lab', deptId: 'dept_mech', periods: 2, span: 2 },
+    // 8th Sem Dual Degree & 2nd Sem M.Tech Advanced PG Cohorts
+    { id: 'sec_cse_8_ds', name: 'DD+M.Tech DS (Sem 8/2)', department_id: 'dept_cse', semester: 8, strength: 35, academic_year: '2025-26' },
+    { id: 'sec_cse_8_cs', name: 'DD+M.Tech CS (Sem 8/2)', department_id: 'dept_cse', semester: 8, strength: 35, academic_year: '2025-26' },
 
-    // EE Courses (6 subjects)
-    { id: 'crs_ee1', code: 'EE301', name: 'Power Systems & Electrical Machines', deptId: 'dept_ee', periods: 3, span: 1 },
-    { id: 'crs_ee2', code: 'EE302', name: 'Control Systems Engineering', deptId: 'dept_ee', periods: 3, span: 1 },
-    { id: 'crs_ee3', code: 'EE303', name: 'Electrical Network Analysis & Synthesis', deptId: 'dept_ee', periods: 3, span: 1 },
-    { id: 'crs_ee4', code: 'EE304', name: 'Power Electronics & Industrial Drives', deptId: 'dept_ee', periods: 3, span: 1 },
-    { id: 'crs_ee5l', code: 'EE305L', name: 'Electrical Machines & Drives Lab', deptId: 'dept_ee', periods: 2, span: 2 },
-    { id: 'crs_ee6l', code: 'EE306L', name: 'Control Systems & Power Sim Lab', deptId: 'dept_ee', periods: 2, span: 2 },
-
-    // CE Courses (6 subjects)
-    { id: 'crs_ce1', code: 'CE301', name: 'Structural Analysis & Concrete Tech', deptId: 'dept_ce', periods: 3, span: 1 },
-    { id: 'crs_ce2', code: 'CE302', name: 'Geotechnical & Soil Mechanics', deptId: 'dept_ce', periods: 3, span: 1 },
-    { id: 'crs_ce3', code: 'CE303', name: 'Transportation & Highway Engineering', deptId: 'dept_ce', periods: 3, span: 1 },
-    { id: 'crs_ce4', code: 'CE304', name: 'Hydrology & Water Resources Engineering', deptId: 'dept_ce', periods: 3, span: 1 },
-    { id: 'crs_ce5l', code: 'CE305L', name: 'Concrete Technology & Materials Lab', deptId: 'dept_ce', periods: 2, span: 2 },
-    { id: 'crs_ce6l', code: 'CE306L', name: 'Geotechnical & Surveying CAD Lab', deptId: 'dept_ce', periods: 2, span: 2 },
+    // ECE Servicing Cohorts (taught by CSE Department for OOPs CS45101)
+    { id: 'sec_ece_4a', name: 'ECE-I (Sem 4)', department_id: 'dept_ece', semester: 4, strength: 70, academic_year: '2025-26' },
+    { id: 'sec_ece_4b', name: 'ECE-II (Sem 4)', department_id: 'dept_ece', semester: 4, strength: 70, academic_year: '2025-26' },
   ];
 
-  for (const c of courses) {
+  for (const s of realSections) {
+    const ex = await queryOne('SELECT id FROM sections WHERE id = ?', [s.id]);
+    if (ex) {
+      await execute(
+        'UPDATE sections SET name = ?, department_id = ?, semester = ?, strength = ?, academic_year = ? WHERE id = ?',
+        [s.name, s.department_id, s.semester, s.strength, s.academic_year, s.id]
+      );
+    } else {
+      await execute(
+        'INSERT INTO sections (id, name, department_id, semester, strength, academic_year) VALUES (?, ?, ?, ?, ?, ?)',
+        [s.id, s.name, s.department_id, s.semester, s.strength, s.academic_year]
+      );
+    }
+  }
+
+  // 6. Authentic Courses (24 Curriculum Courses with strictly paired spans)
+  console.log('📚 Seeding authentic curriculum courses with strictly paired lab spans...');
+  const realCourses = [
+    // 4th Semester Subjects
+    { id: 'c_cs44112', code: 'CS44112', name: 'Artificial Intelligence', department_id: 'dept_cse', semester: 4, periods_per_week: 5, span: 2, lesson_format: '1_AND_2_MIX' },
+    { id: 'c_cs44112_th', code: 'CS44112-TH', name: 'Artificial Intelligence (Theory)', department_id: 'dept_cse', semester: 4, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+    { id: 'c_cs44112_pr', code: 'CS44112-PR', name: 'Artificial Intelligence (Lab)', department_id: 'dept_cse', semester: 4, periods_per_week: 2, span: 2, lesson_format: '2_AT_A_TIME' },
+
+    { id: 'c_cs44113', code: 'CS44113', name: 'Computer Networks', department_id: 'dept_cse', semester: 4, periods_per_week: 5, span: 2, lesson_format: '1_AND_2_MIX' },
+    { id: 'c_cs44113_th', code: 'CS44113-TH', name: 'Computer Networks (Theory)', department_id: 'dept_cse', semester: 4, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+    { id: 'c_cs44113_pr', code: 'CS44113-PR', name: 'Computer Networks (Lab)', department_id: 'dept_cse', semester: 4, periods_per_week: 2, span: 2, lesson_format: '2_AT_A_TIME' },
+
+    { id: 'c_cs44114', code: 'CS44114', name: 'Automata Theory and Compiler Design', department_id: 'dept_cse', semester: 4, periods_per_week: 5, span: 2, lesson_format: '1_AND_2_MIX' },
+    { id: 'c_cs44114_th', code: 'CS44114-TH', name: 'Automata Theory and Compiler Design (Theory)', department_id: 'dept_cse', semester: 4, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+    { id: 'c_cs44114_pr', code: 'CS44114-PR', name: 'Automata Theory and Compiler Design (Lab)', department_id: 'dept_cse', semester: 4, periods_per_week: 2, span: 2, lesson_format: '2_AT_A_TIME' },
+
+    { id: 'c_cs44115', code: 'CS44115', name: 'Design and Analysis of Algorithms', department_id: 'dept_cse', semester: 4, periods_per_week: 5, span: 2, lesson_format: '1_AND_2_MIX' },
+    { id: 'c_cs44115_th', code: 'CS44115-TH', name: 'Design and Analysis of Algorithms (Theory)', department_id: 'dept_cse', semester: 4, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+    { id: 'c_cs44115_pr', code: 'CS44115-PR', name: 'Design and Analysis of Algorithms (Lab)', department_id: 'dept_cse', semester: 4, periods_per_week: 2, span: 2, lesson_format: '2_AT_A_TIME' },
+
+    { id: 'c_cs44164', code: 'CS44164', name: 'Computer System Parallelism', department_id: 'dept_cse', semester: 4, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+    { id: 'c_cs44146', code: 'CS44146', name: 'Operations Research', department_id: 'dept_cse', semester: 4, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+
+    // 6th Semester Subjects
+    { id: 'c_cs64120', code: 'CS64120', name: 'Data Mining', department_id: 'dept_cse', semester: 6, periods_per_week: 5, span: 2, lesson_format: '1_AND_2_MIX' },
+    { id: 'c_cs64121', code: 'CS64121', name: 'Cloud Computing', department_id: 'dept_cse', semester: 6, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+    { id: 'c_cs64163', code: 'CS64163', name: 'Recommendation Systems', department_id: 'dept_cse', semester: 6, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+    { id: 'c_cs64161', code: 'CS64161', name: 'Blockchain Technology', department_id: 'dept_cse', semester: 6, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+    { id: 'c_cs64158', code: 'CS64158', name: 'Distributed Systems', department_id: 'dept_cse', semester: 6, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+
+    // 8th Semester / M.Tech 2nd Semester Electives & Advanced Subjects
+    { id: 'c_cs84130', code: 'CS84130', name: 'Natural Language Processing', department_id: 'dept_cse', semester: 8, periods_per_week: 5, span: 2, lesson_format: '1_AND_2_MIX' },
+    { id: 'c_cs84131', code: 'CS84131', name: 'Deep Learning', department_id: 'dept_cse', semester: 8, periods_per_week: 5, span: 2, lesson_format: '1_AND_2_MIX' },
+    { id: 'c_cs84132', code: 'CS84132', name: 'Data Visualization Techniques', department_id: 'dept_cse', semester: 8, periods_per_week: 5, span: 2, lesson_format: '1_AND_2_MIX' },
+    { id: 'c_cs84138', code: 'CS84138', name: 'Intrusion Detection and Prevention', department_id: 'dept_cse', semester: 8, periods_per_week: 5, span: 2, lesson_format: '1_AND_2_MIX' },
+    { id: 'c_cs84139', code: 'CS84139', name: 'Advanced Internet of Things (IoT)', department_id: 'dept_cse', semester: 8, periods_per_week: 5, span: 2, lesson_format: '1_AND_2_MIX' },
+    { id: 'c_cs84140', code: 'CS84140', name: 'Cyber Forensics', department_id: 'dept_cse', semester: 8, periods_per_week: 5, span: 2, lesson_format: '1_AND_2_MIX' },
+    { id: 'c_cs84190', code: 'CS84190', name: 'Federated Learning', department_id: 'dept_cse', semester: 8, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+    { id: 'c_cs84284', code: 'CS84284', name: 'Computational Geometry', department_id: 'dept_cse', semester: 8, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+
+    // ECE Servicing Courses
+    { id: 'c_cs45101', code: 'CS45101', name: 'Object Oriented Programming', department_id: 'dept_cse', semester: 4, periods_per_week: 5, span: 2, lesson_format: '1_AND_2_MIX' },
+    { id: 'c_cs45101_th', code: 'CS45101-TH', name: 'Object Oriented Programming (Theory)', department_id: 'dept_cse', semester: 4, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+    { id: 'c_cs45101_pr', code: 'CS45101-PR', name: 'Object Oriented Programming (Lab)', department_id: 'dept_cse', semester: 4, periods_per_week: 2, span: 2, lesson_format: '2_AT_A_TIME' },
+    { id: 'c_cs85101', code: 'CS85101', name: 'Open Elective Deep Learning (ECE)', department_id: 'dept_cse', semester: 8, periods_per_week: 3, span: 1, lesson_format: '1_AT_A_TIME' },
+  ];
+
+  for (const c of realCourses) {
     const ex = await queryOne('SELECT id FROM courses WHERE id = ? OR code = ?', [c.id, c.code]);
     if (ex) {
       await execute(
-        'UPDATE courses SET code = ?, name = ?, department_id = ?, periods_per_week = ?, span = ? WHERE id = ?',
-        [c.code, c.name, c.deptId, c.periods, c.span, ex.id]
+        'UPDATE courses SET code = ?, name = ?, department_id = ?, semester = ?, periods_per_week = ?, span = ?, lesson_format = ? WHERE id = ?',
+        [c.code, c.name, c.department_id, c.semester, c.periods_per_week, c.span, c.lesson_format, ex.id]
       );
     } else {
       await execute(
-        'INSERT INTO courses (id, code, name, department_id, periods_per_week, span) VALUES (?, ?, ?, ?, ?, ?)',
-        [c.id, c.code, c.name, c.deptId, c.periods, c.span]
+        'INSERT INTO courses (id, code, name, department_id, semester, periods_per_week, span, lesson_format) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [c.id, c.code, c.name, c.department_id, c.semester, c.periods_per_week, c.span, c.lesson_format]
       );
     }
   }
 
-  // 6. Cohort Sections (12 sections across 5 departments)
-  console.log('👥 Seeding cohort sections...');
-  const sections = [
-    { id: 'sec_cse_a', name: 'Section A', deptId: 'dept_cse', sem: 5, strength: 60 },
-    { id: 'sec_cse_b', name: 'Section B', deptId: 'dept_cse', sem: 5, strength: 60 },
-    { id: 'sec_cse_ai', name: 'Dual-Degree AI', deptId: 'dept_cse', sem: 9, strength: 35 },
-    { id: 'sec_ece_a', name: 'Section A', deptId: 'dept_ece', sem: 5, strength: 60 },
-    { id: 'sec_ece_b', name: 'Section B', deptId: 'dept_ece', sem: 5, strength: 55 },
-    { id: 'sec_me_a', name: 'Section A', deptId: 'dept_mech', sem: 5, strength: 60 },
-    { id: 'sec_me_b', name: 'Section B', deptId: 'dept_mech', sem: 5, strength: 55 },
-    { id: 'sec_ee_a', name: 'Section A', deptId: 'dept_ee', sem: 5, strength: 60 },
-    { id: 'sec_ee_b', name: 'Section B', deptId: 'dept_ee', sem: 5, strength: 55 },
-    { id: 'sec_ce_a', name: 'Section A', deptId: 'dept_ce', sem: 5, strength: 60 },
-    { id: 'sec_ce_b', name: 'Section B', deptId: 'dept_ce', sem: 5, strength: 55 },
-    { id: 'sec_ce_c', name: 'Section C', deptId: 'dept_ce', sem: 5, strength: 65 },
+  // 7. Authentic Teaching Assignments (46 Allocations from Official Excel)
+  console.log('📌 Seeding 46 authentic faculty teaching assignments...');
+  const allocations = [
+    // ==================== CSUG-I 4th Sem ====================
+    { section_id: 'sec_cse_4a', course_id: 'c_cs44112_th', faculty_id: 'fac_cse_upr', periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+    { section_id: 'sec_cse_4a', course_id: 'c_cs44112_pr', faculty_id: 'fac_cse_ss',  periods_per_week: 2, lesson_format: '2_AT_A_TIME' },
+    { section_id: 'sec_cse_4a', course_id: 'c_cs44113_th', faculty_id: 'fac_cse_aks', periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+    { section_id: 'sec_cse_4a', course_id: 'c_cs44113_pr', faculty_id: 'fac_cse_dm',  periods_per_week: 2, lesson_format: '2_AT_A_TIME' },
+    { section_id: 'sec_cse_4a', course_id: 'c_cs44114',    faculty_id: 'fac_cse_dd',  periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_4a', course_id: 'c_cs44115',    faculty_id: 'fac_cse_ak',  periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_4a', course_id: 'c_cs44164',    faculty_id: 'fac_cse_sd',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+
+    // ==================== CSUG-II 4th Sem ====================
+    { section_id: 'sec_cse_4b', course_id: 'c_cs44112',    faculty_id: 'fac_cse_mk',  periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_4b', course_id: 'c_cs44113',    faculty_id: 'fac_cse_dm',  periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_4b', course_id: 'c_cs44114_th', faculty_id: 'fac_cse_bbn', periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+    { section_id: 'sec_cse_4b', course_id: 'c_cs44114_pr', faculty_id: 'fac_cse_bm',  periods_per_week: 2, lesson_format: '2_AT_A_TIME' },
+    { section_id: 'sec_cse_4b', course_id: 'c_cs44115_th', faculty_id: 'fac_cse_ak',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+    { section_id: 'sec_cse_4b', course_id: 'c_cs44115_pr', faculty_id: 'fac_cse_ag',  periods_per_week: 2, lesson_format: '2_AT_A_TIME' },
+    { section_id: 'sec_cse_4b', course_id: 'c_cs44146',    faculty_id: 'fac_cse_bbn', periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+
+    // ==================== CSUG-III + DD 4th Sem ====================
+    { section_id: 'sec_cse_4c', course_id: 'c_cs44112',    faculty_id: 'fac_cse_mk',  periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_4c', course_id: 'c_cs44113',    faculty_id: 'fac_cse_dm',  periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_4c', course_id: 'c_cs44114',    faculty_id: 'fac_cse_kks', periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_4c', course_id: 'c_cs44115_th', faculty_id: 'fac_cse_mps', periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+    { section_id: 'sec_cse_4c', course_id: 'c_cs44115_pr', faculty_id: 'fac_cse_dd',  periods_per_week: 2, lesson_format: '2_AT_A_TIME' },
+    { section_id: 'sec_cse_4c', course_id: 'c_cs44146',    faculty_id: 'fac_cse_bbn', periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+
+    // ==================== CSUG-I 6th Sem ====================
+    { section_id: 'sec_cse_6a', course_id: 'c_cs64120',    faculty_id: 'fac_cse_akd', periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_6a', course_id: 'c_cs64121',    faculty_id: 'fac_cse_kc',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+    { section_id: 'sec_cse_6a', course_id: 'c_cs64163',    faculty_id: 'fac_cse_ss',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+    { section_id: 'sec_cse_6a', course_id: 'c_cs64161',    faculty_id: 'fac_cse_ds',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+
+    // ==================== CSUG-II 6th Sem ====================
+    { section_id: 'sec_cse_6b', course_id: 'c_cs64120',    faculty_id: 'fac_cse_akd', periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_6b', course_id: 'c_cs64121',    faculty_id: 'fac_cse_ag',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+    { section_id: 'sec_cse_6b', course_id: 'c_cs64163',    faculty_id: 'fac_cse_ss',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+
+    // ==================== CSUG-III + DD 6th Sem ====================
+    { section_id: 'sec_cse_6c', course_id: 'c_cs64120',    faculty_id: 'fac_cse_skt', periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_6c', course_id: 'c_cs64121',    faculty_id: 'fac_cse_ag',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+    { section_id: 'sec_cse_6c', course_id: 'c_cs64158',    faculty_id: 'fac_cse_sd',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+
+    // ==================== DD + M.Tech (Data Science) 8th / 2nd Sem ====================
+    { section_id: 'sec_cse_8_ds', course_id: 'c_cs84130',   faculty_id: 'fac_cse_jps', periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_8_ds', course_id: 'c_cs84131',   faculty_id: 'fac_cse_bm',  periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_8_ds', course_id: 'c_cs84132',   faculty_id: 'fac_cse_skt', periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_8_ds', course_id: 'c_cs84190',   faculty_id: 'fac_cse_ss',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+    { section_id: 'sec_cse_8_ds', course_id: 'c_cs84284',   faculty_id: 'fac_cse_dd',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+
+    // ==================== DD + M.Tech (Cyber Security) 8th / 2nd Sem ====================
+    { section_id: 'sec_cse_8_cs', course_id: 'c_cs84138',   faculty_id: 'fac_cse_kc',  periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_8_cs', course_id: 'c_cs84139',   faculty_id: 'fac_cse_bm',  periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_8_cs', course_id: 'c_cs84140',   faculty_id: 'fac_cse_upr', periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_cse_8_cs', course_id: 'c_cs84190',   faculty_id: 'fac_cse_ss',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+    { section_id: 'sec_cse_8_cs', course_id: 'c_cs84284',   faculty_id: 'fac_cse_dd',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+
+    // ==================== ECE 4th Sem (Servicing Courses) ====================
+    { section_id: 'sec_ece_4a', course_id: 'c_cs45101',     faculty_id: 'fac_cse_ds',  periods_per_week: 5, lesson_format: '1_AND_2_MIX' },
+    { section_id: 'sec_ece_4b', course_id: 'c_cs45101_th',  faculty_id: 'fac_cse_ds',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
+    { section_id: 'sec_ece_4b', course_id: 'c_cs45101_pr',  faculty_id: 'fac_cse_sd',  periods_per_week: 2, lesson_format: '2_AT_A_TIME' },
+    { section_id: 'sec_ece_4a', course_id: 'c_cs85101',     faculty_id: 'fac_cse_bm',  periods_per_week: 3, lesson_format: '1_AT_A_TIME' },
   ];
 
-  for (const s of sections) {
-    const ex = await queryOne('SELECT id FROM sections WHERE department_id = ? AND name = ?', [s.deptId, s.name]);
-    if (!ex) {
-      await execute(
-        'INSERT INTO sections (id, name, department_id, semester, strength, academic_year) VALUES (?, ?, ?, ?, ?, ?)',
-        [s.id, s.name, s.deptId, s.sem, s.strength, '2026-27']
-      );
-    } else {
-      await execute('UPDATE sections SET semester = ?, strength = ? WHERE id = ?', [s.sem, s.strength, ex.id]);
-    }
-  }
-
-  // 7. Teaching Allocations (Scenario 1: Primary Subject Teachers)
-  console.log('📌 Seeding primary subject-code faculty allocations...');
-  const teachingMappings = [
-    // CSE Subjects (6 subjects)
-    { deptCode: 'CSE', secName: 'Section A', courseCode: 'CS301', facCode: 'FAC-CS-01', p: 3 },
-    { deptCode: 'CSE', secName: 'Section A', courseCode: 'CS302', facCode: 'FAC-CS-02', p: 3 },
-    { deptCode: 'CSE', secName: 'Section A', courseCode: 'CS303', facCode: 'FAC-CS-03', p: 3 },
-    { deptCode: 'CSE', secName: 'Section A', courseCode: 'CS304', facCode: 'FAC-CS-04', p: 3 },
-    { deptCode: 'CSE', secName: 'Section A', courseCode: 'CS305L', facCode: 'FAC-CS-05', p: 2 },
-    { deptCode: 'CSE', secName: 'Section A', courseCode: 'CS306L', facCode: 'FAC-CS-06', p: 2 },
-
-    { deptCode: 'CSE', secName: 'Section B', courseCode: 'CS301', facCode: 'FAC-CS-01', p: 3 },
-    { deptCode: 'CSE', secName: 'Section B', courseCode: 'CS302', facCode: 'FAC-CS-02', p: 3 },
-    { deptCode: 'CSE', secName: 'Section B', courseCode: 'CS303', facCode: 'FAC-CS-03', p: 3 },
-    { deptCode: 'CSE', secName: 'Section B', courseCode: 'CS304', facCode: 'FAC-CS-04', p: 3 },
-    { deptCode: 'CSE', secName: 'Section B', courseCode: 'CS305L', facCode: 'FAC-CS-05', p: 2 },
-    { deptCode: 'CSE', secName: 'Section B', courseCode: 'CS306L', facCode: 'FAC-CS-06', p: 2 },
-
-    { deptCode: 'CSE', secName: 'Dual-Degree AI', courseCode: 'CS901', facCode: 'FAC-CS-04', p: 3 },
-    { deptCode: 'CSE', secName: 'Dual-Degree AI', courseCode: 'CS301', facCode: 'FAC-CS-01', p: 3 },
-    { deptCode: 'CSE', secName: 'Dual-Degree AI', courseCode: 'CS302', facCode: 'FAC-CS-02', p: 3 },
-    { deptCode: 'CSE', secName: 'Dual-Degree AI', courseCode: 'CS303', facCode: 'FAC-CS-03', p: 3 },
-    { deptCode: 'CSE', secName: 'Dual-Degree AI', courseCode: 'CS305L', facCode: 'FAC-CS-05', p: 2 },
-    { deptCode: 'CSE', secName: 'Dual-Degree AI', courseCode: 'CS306L', facCode: 'FAC-CS-06', p: 2 },
-
-    // ECE Subjects (6 subjects)
-    { deptCode: 'ECE', secName: 'Section A', courseCode: 'EC301', facCode: 'FAC-EC-01', p: 3 },
-    { deptCode: 'ECE', secName: 'Section A', courseCode: 'EC302', facCode: 'FAC-EC-02', p: 3 },
-    { deptCode: 'ECE', secName: 'Section A', courseCode: 'EC303', facCode: 'FAC-EC-03', p: 3 },
-    { deptCode: 'ECE', secName: 'Section A', courseCode: 'EC304', facCode: 'FAC-EC-04', p: 3 },
-    { deptCode: 'ECE', secName: 'Section A', courseCode: 'EC305L', facCode: 'FAC-EC-05', p: 2 },
-    { deptCode: 'ECE', secName: 'Section A', courseCode: 'EC306L', facCode: 'FAC-EC-02', p: 2 },
-
-    { deptCode: 'ECE', secName: 'Section B', courseCode: 'EC301', facCode: 'FAC-EC-01', p: 3 },
-    { deptCode: 'ECE', secName: 'Section B', courseCode: 'EC302', facCode: 'FAC-EC-02', p: 3 },
-    { deptCode: 'ECE', secName: 'Section B', courseCode: 'EC303', facCode: 'FAC-EC-03', p: 3 },
-    { deptCode: 'ECE', secName: 'Section B', courseCode: 'EC304', facCode: 'FAC-EC-04', p: 3 },
-    { deptCode: 'ECE', secName: 'Section B', courseCode: 'EC305L', facCode: 'FAC-EC-05', p: 2 },
-    { deptCode: 'ECE', secName: 'Section B', courseCode: 'EC306L', facCode: 'FAC-EC-02', p: 2 },
-
-    // MECH Subjects (6 subjects)
-    { deptCode: 'MECH', secName: 'Section A', courseCode: 'ME301', facCode: 'FAC-ME-01', p: 3 },
-    { deptCode: 'MECH', secName: 'Section A', courseCode: 'ME302', facCode: 'FAC-ME-02', p: 3 },
-    { deptCode: 'MECH', secName: 'Section A', courseCode: 'ME303', facCode: 'FAC-ME-03', p: 3 },
-    { deptCode: 'MECH', secName: 'Section A', courseCode: 'ME304', facCode: 'FAC-ME-04', p: 3 },
-    { deptCode: 'MECH', secName: 'Section A', courseCode: 'ME305L', facCode: 'FAC-ME-05', p: 2 },
-    { deptCode: 'MECH', secName: 'Section A', courseCode: 'ME306L', facCode: 'FAC-ME-02', p: 2 },
-
-    { deptCode: 'MECH', secName: 'Section B', courseCode: 'ME301', facCode: 'FAC-ME-01', p: 3 },
-    { deptCode: 'MECH', secName: 'Section B', courseCode: 'ME302', facCode: 'FAC-ME-02', p: 3 },
-    { deptCode: 'MECH', secName: 'Section B', courseCode: 'ME303', facCode: 'FAC-ME-03', p: 3 },
-    { deptCode: 'MECH', secName: 'Section B', courseCode: 'ME304', facCode: 'FAC-ME-04', p: 3 },
-    { deptCode: 'MECH', secName: 'Section B', courseCode: 'ME305L', facCode: 'FAC-ME-05', p: 2 },
-    { deptCode: 'MECH', secName: 'Section B', courseCode: 'ME306L', facCode: 'FAC-ME-02', p: 2 },
-
-    // EE Subjects (6 subjects)
-    { deptCode: 'EE', secName: 'Section A', courseCode: 'EE301', facCode: 'FAC-EE-01', p: 3 },
-    { deptCode: 'EE', secName: 'Section A', courseCode: 'EE302', facCode: 'FAC-EE-02', p: 3 },
-    { deptCode: 'EE', secName: 'Section A', courseCode: 'EE303', facCode: 'FAC-EE-03', p: 3 },
-    { deptCode: 'EE', secName: 'Section A', courseCode: 'EE304', facCode: 'FAC-EE-04', p: 3 },
-    { deptCode: 'EE', secName: 'Section A', courseCode: 'EE305L', facCode: 'FAC-EE-05', p: 2 },
-    { deptCode: 'EE', secName: 'Section A', courseCode: 'EE306L', facCode: 'FAC-EE-03', p: 2 },
-
-    { deptCode: 'EE', secName: 'Section B', courseCode: 'EE301', facCode: 'FAC-EE-01', p: 3 },
-    { deptCode: 'EE', secName: 'Section B', courseCode: 'EE302', facCode: 'FAC-EE-02', p: 3 },
-    { deptCode: 'EE', secName: 'Section B', courseCode: 'EE303', facCode: 'FAC-EE-03', p: 3 },
-    { deptCode: 'EE', secName: 'Section B', courseCode: 'EE304', facCode: 'FAC-EE-04', p: 3 },
-    { deptCode: 'EE', secName: 'Section B', courseCode: 'EE305L', facCode: 'FAC-EE-05', p: 2 },
-    { deptCode: 'EE', secName: 'Section B', courseCode: 'EE306L', facCode: 'FAC-EE-03', p: 2 },
-
-    // CE Subjects (6 subjects, including Section C!)
-    { deptCode: 'CE', secName: 'Section A', courseCode: 'CE301', facCode: 'FAC-CE-01', p: 3 },
-    { deptCode: 'CE', secName: 'Section A', courseCode: 'CE302', facCode: 'FAC-CE-02', p: 3 },
-    { deptCode: 'CE', secName: 'Section A', courseCode: 'CE303', facCode: 'FAC-CE-03', p: 3 },
-    { deptCode: 'CE', secName: 'Section A', courseCode: 'CE304', facCode: 'FAC-CE-04', p: 3 },
-    { deptCode: 'CE', secName: 'Section A', courseCode: 'CE305L', facCode: 'FAC-CE-05', p: 2 },
-    { deptCode: 'CE', secName: 'Section A', courseCode: 'CE306L', facCode: 'FAC-CE-06', p: 2 },
-
-    { deptCode: 'CE', secName: 'Section B', courseCode: 'CE301', facCode: 'FAC-CE-01', p: 3 },
-    { deptCode: 'CE', secName: 'Section B', courseCode: 'CE302', facCode: 'FAC-CE-02', p: 3 },
-    { deptCode: 'CE', secName: 'Section B', courseCode: 'CE303', facCode: 'FAC-CE-03', p: 3 },
-    { deptCode: 'CE', secName: 'Section B', courseCode: 'CE304', facCode: 'FAC-CE-04', p: 3 },
-    { deptCode: 'CE', secName: 'Section B', courseCode: 'CE305L', facCode: 'FAC-CE-05', p: 2 },
-    { deptCode: 'CE', secName: 'Section B', courseCode: 'CE306L', facCode: 'FAC-CE-06', p: 2 },
-
-    { deptCode: 'CE', secName: 'Section C', courseCode: 'CE301', facCode: 'FAC-CE-01', p: 3 },
-    { deptCode: 'CE', secName: 'Section C', courseCode: 'CE302', facCode: 'FAC-CE-02', p: 3 },
-    { deptCode: 'CE', secName: 'Section C', courseCode: 'CE303', facCode: 'FAC-CE-03', p: 3 },
-    { deptCode: 'CE', secName: 'Section C', courseCode: 'CE304', facCode: 'FAC-CE-04', p: 3 },
-    { deptCode: 'CE', secName: 'Section C', courseCode: 'CE305L', facCode: 'FAC-CE-05', p: 2 },
-    { deptCode: 'CE', secName: 'Section C', courseCode: 'CE306L', facCode: 'FAC-CE-06', p: 2 },
-  ];
-
-  for (const m of teachingMappings) {
-    const sec = await queryOne<{ id: string }>(
-      'SELECT s.id FROM sections s JOIN departments d ON d.id = s.department_id WHERE d.code = ? AND s.name = ?',
-      [m.deptCode, m.secName]
+  for (const a of allocations) {
+    const id = 'ta_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+    await execute(
+      'INSERT INTO teaching_assignments (id, section_id, course_id, faculty_id, periods_per_week, batch, lesson_format) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, a.section_id, a.course_id, a.faculty_id, a.periods_per_week, 'ALL', a.lesson_format]
     );
-    const crs = await queryOne<{ id: string }>('SELECT id FROM courses WHERE code = ?', [m.courseCode]);
-    const fac = await queryOne<{ id: string }>('SELECT id FROM faculty WHERE code = ? OR id = ?', [m.facCode, m.facCode]);
-
-    if (!sec || !crs || !fac) {
-      console.warn(`[Skip assignment] Could not resolve: dept=${m.deptCode}, sec=${m.secName}, crs=${m.courseCode}, fac=${m.facCode}`);
-      continue;
-    }
-
-    const existing = await queryOne(
-      'SELECT id FROM teaching_assignments WHERE section_id = ? AND course_id = ?',
-      [sec.id, crs.id]
-    );
-    if (existing) {
-      await execute(
-        'UPDATE teaching_assignments SET faculty_id = ?, periods_per_week = ? WHERE id = ?',
-        [fac.id, m.p, existing.id]
-      );
-    } else {
-      const taId = 'ta_' + Math.random().toString(36).substring(2, 10);
-      await execute(
-        'INSERT INTO teaching_assignments (id, section_id, course_id, faculty_id, periods_per_week) VALUES (?, ?, ?, ?, ?)',
-        [taId, sec.id, crs.id, fac.id, m.p]
-      );
-    }
   }
 
   // 8. Exam Schedule & Seating Demo Students
@@ -395,7 +351,7 @@ async function initDb() {
   if (!existingExam) {
     await execute(
       'INSERT INTO exam_schedules (id, title, date, slot) VALUES (?, ?, ?, ?)',
-      ['exam_midterm_2026', 'Mid-Term Examinations Autumn 2026', '2026-10-25', 'Morning (09:30-12:30)']
+      ['exam_midterm_2026', 'Mid-Term Examinations Even Sem 2026', '2026-11-25', 'Morning (09:30-12:30)']
     );
   }
 
@@ -403,21 +359,35 @@ async function initDb() {
   if (Number(existingStudents?.count || 0) < 36) {
     for (let i = 1; i <= 18; i++) {
       const pad = String(i).padStart(3, '0');
-      await execute(
-        'INSERT OR IGNORE INTO students (id, roll_number, name, department_id, semester) VALUES (?, ?, ?, ?, ?)',
-        [`stu_cse_${i}`, `2026-CSE-${pad}`, `CSE Student ${i}`, 'dept_cse', 5]
-      );
-      await execute(
-        'INSERT OR IGNORE INTO students (id, roll_number, name, department_id, semester) VALUES (?, ?, ?, ?, ?)',
-        [`stu_ece_${i}`, `2026-ECE-${pad}`, `ECE Student ${i}`, 'dept_ece', 5]
-      );
+      const exCse = await queryOne('SELECT id FROM students WHERE id = ?', [`stu_cse_${i}`]);
+      if (!exCse) {
+        await execute(
+          'INSERT INTO students (id, roll_number, name, department_id, semester) VALUES (?, ?, ?, ?, ?)',
+          [`stu_cse_${i}`, `2026-CSE-${pad}`, `CSE Student ${i}`, 'dept_cse', 4]
+        );
+      }
+      const exEce = await queryOne('SELECT id FROM students WHERE id = ?', [`stu_ece_${i}`]);
+      if (!exEce) {
+        await execute(
+          'INSERT INTO students (id, roll_number, name, department_id, semester) VALUES (?, ?, ?, ?, ?)',
+          [`stu_ece_${i}`, `2026-ECE-${pad}`, `ECE Student ${i}`, 'dept_ece', 4]
+        );
+      }
     }
   }
 
-  console.log('🎉 Comprehensive institutional database initialization complete!');
+  console.log('🎉 Authentic NIT Patna Bihta Campus Even Semester 2026 database initialization complete!');
+  console.log(`   - Faculty Members: ${realFaculty.length}`);
+  console.log(`   - Academic Sections: ${realSections.length}`);
+  console.log(`   - Curriculum Courses: ${realCourses.length}`);
+  console.log(`   - Teaching Allocations: ${allocations.length}`);
 }
 
-initDb().catch((e) => {
-  console.error('Database initialization error:', e);
-  process.exit(1);
-});
+initDb()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch((e) => {
+    console.error('Database initialization error:', e);
+    process.exit(1);
+  });

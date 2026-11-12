@@ -54,6 +54,11 @@ function LoginForm() {
   const handleGoogleSignIn = () => {
     setIsLoading(true);
     setErrorMessage('');
+    // Ensure localhost is used for Google OAuth compliance if running locally on 0.0.0.0 or 127.0.0.1
+    if (typeof window !== 'undefined' && (window.location.hostname === '0.0.0.0' || window.location.hostname === '127.0.0.1')) {
+      window.location.href = `http://localhost:${window.location.port || '3010'}/api/auth/google`;
+      return;
+    }
     // Full browser navigation required for OAuth handshake
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.href = '/api/auth/google';
@@ -182,7 +187,7 @@ function LoginForm() {
 
       <CardFooter className="justify-center border-zinc-800/80 pt-3 pb-5">
         <p className="text-[11px] text-zinc-400 text-center">
-          First-time login? Your account is provisioned automatically upon your first Google authentication.
+          Institutional Access Only · Self-registration is disabled. Only pre-authorized NIT Patna faculty and administration accounts are granted access.
         </p>
       </CardFooter>
     </Card>

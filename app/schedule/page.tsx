@@ -1013,6 +1013,10 @@ export default function SchedulePage() {
       footerTag: string;
       periods: PeriodSlot[];
       days: ('MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY')[];
+      hasLunchBreak?: boolean;
+      lunchAfterPeriod?: number;
+      lunchTime?: string;
+      lunchLabel?: string;
     }
   ) => {
     const pageWidth = 297;
@@ -1026,8 +1030,23 @@ export default function SchedulePage() {
     const days = options.days || ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
     const periods = options.periods;
 
-    const periodColWidth = (tableWidth - dayColWidth) / periods.length;
+    const hasLunch = options.hasLunchBreak !== false && (options.lunchAfterPeriod ?? 4) > 0;
+    const lunchAfter = hasLunch ? (options.lunchAfterPeriod ?? 4) : 0;
+    const lunchTime = options.lunchTime || '12:25 - 13:30';
+    const lunchLabel = options.lunchLabel || 'LUNCH';
+    const lunchColWidth = hasLunch ? 18 : 0;
+
+    const periodColWidth = (tableWidth - dayColWidth - lunchColWidth) / periods.length;
     const dayRowHeight = (tableHeight - headerHeight) / days.length;
+
+    const getPeriodX = (periodIndex: number, pIdx: number) => {
+      let x = marginX + dayColWidth + pIdx * periodColWidth;
+      if (hasLunch && periodIndex > lunchAfter) {
+        x += lunchColWidth;
+      }
+      return x;
+    };
+    const lunchX = marginX + dayColWidth + lunchAfter * periodColWidth;
 
     // 1. Large Bold Centered Title (e.g. CSE - DUAL-DEGREE AI)
     pdf.setFont('helvetica', 'bold');
@@ -1052,7 +1071,7 @@ export default function SchedulePage() {
 
     // 5. Period Headers (Period number on top, time range below)
     periods.forEach((p, i) => {
-      const x = marginX + dayColWidth + i * periodColWidth;
+      const x = getPeriodX(p.index, i);
       pdf.setDrawColor(0, 0, 0);
       pdf.setLineWidth(0.35);
       pdf.rect(x, tableStartY, periodColWidth, headerHeight);
@@ -1069,6 +1088,44 @@ export default function SchedulePage() {
       pdf.setTextColor(50, 50, 50);
       pdf.text(p.time, x + periodColWidth / 2, tableStartY + 10.2, { align: 'center' });
     });
+
+    // 5b. Lunch Break Header (Zero-overflow stacked layout)
+    if (hasLunch) {
+      pdf.setDrawColor(0, 0, 0);
+      pdf.setLineWidth(0.35);
+      pdf.rect(lunchX, tableStartY, lunchColWidth, headerHeight);
+
+      const words = (lunchLabel || 'LUNCH RECESS').trim().split(/\s+/);
+      if (words.length > 1) {
+        // "LUNCH"
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(0, 0, 0);
+        pdf.text(words[0].toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 4.2, { align: 'center' });
+
+        // "RECESS"
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(6.2);
+        pdf.setTextColor(40, 40, 40);
+        pdf.text(words.slice(1).join(' ').toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 7.8, { align: 'center' });
+
+        // "12:25 - 13:30"
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(5.2);
+        pdf.setTextColor(60, 60, 60);
+        pdf.text(lunchTime, lunchX + lunchColWidth / 2, tableStartY + 11.2, { align: 'center' });
+      } else {
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(0, 0, 0);
+        pdf.text(lunchLabel.toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 5.2, { align: 'center' });
+
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(5.8);
+        pdf.setTextColor(60, 60, 60);
+        pdf.text(lunchTime, lunchX + lunchColWidth / 2, tableStartY + 10.2, { align: 'center' });
+      }
+    }
 
     // 6. Build lookup matrix for sessions & multi-period spans
     const matrix = new Map<string, ClassSession>();
@@ -1107,7 +1164,7 @@ export default function SchedulePage() {
 
         const session = matrix.get(cellKey);
         const span = session && session.span ? session.span : 1;
-        const x = marginX + dayColWidth + pIdx * periodColWidth;
+        const x = getPeriodX(p.index, pIdx);
         const cellW = periodColWidth * span;
 
         // Draw cell border
@@ -1207,7 +1264,29 @@ export default function SchedulePage() {
           }
         }
       });
+
     });
+
+    // 7b. Single continuous Lunch column body spanning across all days
+    if (hasLunch) {
+      const lunchBodyStartY = tableStartY + headerHeight;
+      const lunchBodyHeight = tableHeight - headerHeight;
+      pdf.setDrawColor(0, 0, 0);
+      pdf.setLineWidth(0.35);
+      pdf.rect(lunchX, lunchBodyStartY, lunchColWidth, lunchBodyHeight);
+
+      const letters = ['L', 'U', 'N', 'C', 'H'];
+      const letterStep = 11;
+      const totalTextHeight = (letters.length - 1) * letterStep;
+      const startY = lunchBodyStartY + (lunchBodyHeight - totalTextHeight) / 2 + 2;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(12);
+      pdf.setTextColor(20, 20, 20);
+      for (let i = 0; i < letters.length; i++) {
+        pdf.text(letters[i], lunchX + lunchColWidth / 2, startY + i * letterStep, { align: 'center' });
+      }
+    }
 
     // 8. Footer line (Timetable generated: ... | aPn Timetables)
     pdf.setFont('helvetica', 'normal');
@@ -1250,6 +1329,10 @@ export default function SchedulePage() {
           footerTag: exportFooterTag,
           periods: timingConfig.periods,
           days: displayDays,
+          hasLunchBreak: timingConfig.hasLunchBreak,
+          lunchAfterPeriod: timingConfig.lunchAfterPeriod,
+          lunchTime: timingConfig.lunchTime,
+          lunchLabel: timingConfig.lunchLabel,
         });
       }
 
@@ -1496,6 +1579,10 @@ export default function SchedulePage() {
               periods: timingConfig.periods,
               days: displayDays,
               exportType,
+              hasLunchBreak: timingConfig.hasLunchBreak,
+              lunchAfterPeriod: timingConfig.lunchAfterPeriod,
+              lunchTime: timingConfig.lunchTime,
+              lunchLabel: timingConfig.lunchLabel,
               targetName:
                 exportScope === 'SPECIFIC'
                   ? (exportSheets[0]?.title || 'Timetable').replace(/[^a-zA-Z0-9_-]/g, '_')
@@ -1521,8 +1608,24 @@ export default function SchedulePage() {
               const headerHeight = 13;
               const days = options.days;
               const periods = options.periods;
-              const periodColWidth = (tableWidth - dayColWidth) / periods.length;
+
+              const hasLunch = options.hasLunchBreak !== false && (options.lunchAfterPeriod || 4) > 0;
+              const lunchAfter = hasLunch ? (options.lunchAfterPeriod || 4) : 0;
+              const lunchTime = options.lunchTime || '12:25 - 13:30';
+              const lunchLabel = options.lunchLabel || 'LUNCH';
+              const lunchColWidth = hasLunch ? 18 : 0;
+
+              const periodColWidth = (tableWidth - dayColWidth - lunchColWidth) / periods.length;
               const dayRowHeight = (tableHeight - headerHeight) / days.length;
+
+              function getPeriodX(periodIndex, pIdx) {
+                let x = marginX + dayColWidth + pIdx * periodColWidth;
+                if (hasLunch && periodIndex > lunchAfter) {
+                  x += lunchColWidth;
+                }
+                return x;
+              }
+              const lunchX = marginX + dayColWidth + lunchAfter * periodColWidth;
 
               pdf.setFont('helvetica', 'bold');
               pdf.setFontSize(18);
@@ -1542,7 +1645,7 @@ export default function SchedulePage() {
               pdf.rect(marginX, tableStartY, dayColWidth, headerHeight);
 
               periods.forEach((p, i) => {
-                const x = marginX + dayColWidth + i * periodColWidth;
+                const x = getPeriodX(p.index, i);
                 pdf.setDrawColor(0, 0, 0);
                 pdf.setLineWidth(0.35);
                 pdf.rect(x, tableStartY, periodColWidth, headerHeight);
@@ -1555,6 +1658,44 @@ export default function SchedulePage() {
                 pdf.setTextColor(50, 50, 50);
                 pdf.text(p.time, x + periodColWidth / 2, tableStartY + 10.2, { align: 'center' });
               });
+
+              // 5b. Lunch Break Header (Zero-overflow stacked layout)
+              if (hasLunch) {
+                pdf.setDrawColor(0, 0, 0);
+                pdf.setLineWidth(0.35);
+                pdf.rect(lunchX, tableStartY, lunchColWidth, headerHeight);
+
+                const words = (lunchLabel || 'LUNCH RECESS').trim().split(/\s+/);
+                if (words.length > 1) {
+                  // "LUNCH"
+                  pdf.setFont('helvetica', 'bold');
+                  pdf.setFontSize(7.5);
+                  pdf.setTextColor(0, 0, 0);
+                  pdf.text(words[0].toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 4.2, { align: 'center' });
+
+                  // "RECESS"
+                  pdf.setFont('helvetica', 'bold');
+                  pdf.setFontSize(6.2);
+                  pdf.setTextColor(40, 40, 40);
+                  pdf.text(words.slice(1).join(' ').toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 7.8, { align: 'center' });
+
+                  // "12:25 - 13:30"
+                  pdf.setFont('helvetica', 'normal');
+                  pdf.setFontSize(5.2);
+                  pdf.setTextColor(60, 60, 60);
+                  pdf.text(lunchTime, lunchX + lunchColWidth / 2, tableStartY + 11.2, { align: 'center' });
+                } else {
+                  pdf.setFont('helvetica', 'bold');
+                  pdf.setFontSize(8.5);
+                  pdf.setTextColor(0, 0, 0);
+                  pdf.text(lunchLabel.toUpperCase(), lunchX + lunchColWidth / 2, tableStartY + 5.2, { align: 'center' });
+
+                  pdf.setFont('helvetica', 'normal');
+                  pdf.setFontSize(5.8);
+                  pdf.setTextColor(60, 60, 60);
+                  pdf.text(lunchTime, lunchX + lunchColWidth / 2, tableStartY + 10.2, { align: 'center' });
+                }
+              }
 
               const matrix = new Map();
               const spanned = new Set();
@@ -1582,7 +1723,7 @@ export default function SchedulePage() {
                   if (spanned.has(cellKey)) return;
                   const session = matrix.get(cellKey);
                   const span = session && session.span ? session.span : 1;
-                  const x = marginX + dayColWidth + pIdx * periodColWidth;
+                  const x = getPeriodX(p.index, pIdx);
                   const cellW = periodColWidth * span;
 
                   pdf.setDrawColor(0, 0, 0);
@@ -1649,7 +1790,29 @@ export default function SchedulePage() {
                     }
                   }
                 });
+
               });
+
+              // 7b. Single continuous Lunch column body spanning across all days
+              if (hasLunch) {
+                const lunchBodyStartY = tableStartY + headerHeight;
+                const lunchBodyHeight = tableHeight - headerHeight;
+                pdf.setDrawColor(0, 0, 0);
+                pdf.setLineWidth(0.35);
+                pdf.rect(lunchX, lunchBodyStartY, lunchColWidth, lunchBodyHeight);
+
+                const letters = ['L', 'U', 'N', 'C', 'H'];
+                const letterStep = 11;
+                const totalTextHeight = (letters.length - 1) * letterStep;
+                const startY = lunchBodyStartY + (lunchBodyHeight - totalTextHeight) / 2 + 2;
+
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(12);
+                pdf.setTextColor(20, 20, 20);
+                for (let i = 0; i < letters.length; i++) {
+                  pdf.text(letters[i], lunchX + lunchColWidth / 2, startY + i * letterStep, { align: 'center' });
+                }
+              }
 
               pdf.setFont('helvetica', 'normal');
               pdf.setFontSize(8.5);
@@ -1726,7 +1889,7 @@ export default function SchedulePage() {
       {activeViewMode === 'STUDIO' ? (
         <div className="space-y-4">
           <MasterGrid
-            sessions={allSessions}
+            sessions={displayAllSessions}
             perspective={studioPerspective}
             density={gridDensity}
             workingDays={workingDays}
@@ -2170,6 +2333,10 @@ export default function SchedulePage() {
               sessions={sheet.sessions}
               periods={timingConfig.periods}
               days={displayDays}
+              hasLunchBreak={timingConfig.hasLunchBreak}
+              lunchAfterPeriod={timingConfig.lunchAfterPeriod}
+              lunchTime={timingConfig.lunchTime}
+              lunchLabel={timingConfig.lunchLabel}
             />
           ))}
         </div>
@@ -2575,6 +2742,10 @@ export default function SchedulePage() {
                     sessions={sheet.sessions}
                     periods={timingConfig.periods}
                     days={displayDays}
+                    hasLunchBreak={timingConfig.hasLunchBreak}
+                    lunchAfterPeriod={timingConfig.lunchAfterPeriod}
+                    lunchTime={timingConfig.lunchTime}
+                    lunchLabel={timingConfig.lunchLabel}
                     isPreview
                   />
                   {idx === 0 && exportSheets.length > 1 && (
@@ -2837,6 +3008,10 @@ function ApnTimetableSheet({
   periods,
   days,
   isPreview = false,
+  hasLunchBreak = true,
+  lunchAfterPeriod = 4,
+  lunchTime = '12:25 - 13:30',
+  lunchLabel = 'LUNCH',
 }: {
   title: string;
   type: 'SECTION' | 'FACULTY' | 'ROOM';
@@ -2847,6 +3022,10 @@ function ApnTimetableSheet({
   periods: PeriodSlot[];
   days: ('MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY')[];
   isPreview?: boolean;
+  hasLunchBreak?: boolean;
+  lunchAfterPeriod?: number;
+  lunchTime?: string;
+  lunchLabel?: string;
 }) {
   const matrix = new Map<string, ClassSession>();
   const spanned = new Set<string>();
@@ -2903,29 +3082,54 @@ function ApnTimetableSheet({
                 backgroundColor: '#ffffff',
               }}
             />
-            {periods.map((p) => (
-              <th
-                key={p.index}
-                style={{
-                  border: '1.5px solid #000000',
-                  textAlign: 'center',
-                  verticalAlign: 'middle',
-                  padding: '2px',
-                  backgroundColor: '#ffffff',
-                }}
-              >
-                <div className="text-sm font-bold text-black leading-tight">
-                  {p.label || p.index}
-                </div>
-                <div className="text-[9px] font-normal text-zinc-800 leading-tight">
-                  {p.time}
-                </div>
-              </th>
-            ))}
+            {periods.map((p) => {
+              const isAfterLunch = hasLunchBreak && lunchAfterPeriod > 0 && p.index === lunchAfterPeriod;
+              return (
+                <React.Fragment key={p.index}>
+                  <th
+                    style={{
+                      border: '1.5px solid #000000',
+                      textAlign: 'center',
+                      verticalAlign: 'middle',
+                      padding: '2px',
+                      backgroundColor: '#ffffff',
+                    }}
+                  >
+                    <div className="text-sm font-bold text-black leading-tight">
+                      {p.label || p.index}
+                    </div>
+                    <div className="text-[9px] font-normal text-zinc-800 leading-tight">
+                      {p.time}
+                    </div>
+                  </th>
+
+                  {isAfterLunch && (
+                    <th
+                      key="lunch-header"
+                      style={{
+                        width: '56px',
+                        border: '1.5px solid #000000',
+                        textAlign: 'center',
+                        verticalAlign: 'middle',
+                        padding: '2px',
+                        backgroundColor: '#ffffff',
+                      }}
+                    >
+                      <div className="text-xs font-black text-black leading-tight uppercase">
+                        {lunchLabel || 'LUNCH'}
+                      </div>
+                      <div className="text-[9px] font-bold text-zinc-800 leading-tight mt-0.5 whitespace-nowrap">
+                        {lunchTime}
+                      </div>
+                    </th>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
-          {days.map((day) => (
+          {days.map((day, dayIdx) => (
             <tr key={day} style={{ height: '82px' }}>
               {/* Day column: Mo, Tu, We, Th, Fr */}
               <td
@@ -2946,71 +3150,116 @@ function ApnTimetableSheet({
               {/* Periods Columns */}
               {periods.map((p) => {
                 const cellKey = `${day}:${p.index}`;
-                if (spanned.has(cellKey)) return null;
-
+                const isAfterLunch = hasLunchBreak && lunchAfterPeriod > 0 && p.index === lunchAfterPeriod;
+                const isSpanned = spanned.has(cellKey);
                 const session = matrix.get(cellKey);
 
                 return (
-                  <td
-                    key={p.index}
-                    colSpan={session?.span || 1}
-                    style={{
-                      border: '1.5px solid #000000',
-                      verticalAlign: 'top',
-                      padding: '3px 4px',
-                      height: '82px',
-                      position: 'relative',
-                      backgroundColor: '#ffffff',
-                    }}
-                  >
-                    {session ? (
-                      type === 'SECTION' ? (
-                        /* CLASS/SECTION WISE CELL (Matching Image 1): */
-                        /* Top-left: Room | Center: Course | Bottom-right: Faculty */
-                        <div className="h-full flex flex-col justify-between text-black select-none">
-                          <div className="text-[10px] sm:text-[11px] font-bold text-left leading-tight">
-                            {session.room_code}
-                          </div>
-                          <div className="text-xs sm:text-[13px] font-extrabold text-center uppercase tracking-tight py-1">
-                            {session.course_code}
-                          </div>
-                          <div className="text-[10px] sm:text-[11px] font-semibold text-right leading-tight">
-                            {session.faculty_name}
-                          </div>
+                  <React.Fragment key={p.index}>
+                    {!isSpanned && (
+                      <td
+                        colSpan={session?.span || 1}
+                        style={{
+                          border: '1.5px solid #000000',
+                          verticalAlign: 'top',
+                          padding: '3px 4px',
+                          height: '82px',
+                          position: 'relative',
+                          backgroundColor: '#ffffff',
+                        }}
+                      >
+                        {session ? (
+                          type === 'SECTION' ? (
+                            /* CLASS/SECTION WISE CELL (Matching Image 1): */
+                            /* Top-left: Room | Center: Course | Bottom-right: Faculty */
+                            <div className="h-full flex flex-col justify-between text-black select-none">
+                              <div className="text-[10px] sm:text-[11px] font-bold text-left leading-tight">
+                                {session.room_code}
+                              </div>
+                              <div className="text-xs sm:text-[13px] font-extrabold text-center uppercase tracking-tight py-1">
+                                {session.course_code}
+                              </div>
+                              <div className="text-[10px] sm:text-[11px] font-semibold text-right leading-tight">
+                                {session.faculty_name}
+                              </div>
+                            </div>
+                          ) : type === 'FACULTY' ? (
+                            /* FACULTY WISE CELL (Matching Image 2): */
+                            /* Top-left: Course | Top-right: Room | Center/Bottom: Section */
+                            <div className="h-full flex flex-col justify-between text-black select-none">
+                              <div className="flex items-start justify-between text-[10px] sm:text-[11px] leading-tight">
+                                <span className="font-bold">{session.course_code}</span>
+                                <span className="font-semibold text-right">{session.room_code}</span>
+                              </div>
+                              <div className="text-xs sm:text-[13px] font-extrabold text-center uppercase tracking-tight py-1">
+                                {session.section_name}
+                              </div>
+                              <div className="text-[9px] text-right text-zinc-700">
+                                {session.room_name !== session.room_code ? session.room_name : ''}
+                              </div>
+                            </div>
+                          ) : (
+                            /* ROOM / CLASSROOM WISE CELL: */
+                            /* Top-left: Course | Top-right: Faculty | Center/Bottom: Section */
+                            <div className="h-full flex flex-col justify-between text-black select-none">
+                              <div className="flex items-start justify-between text-[10px] sm:text-[11px] leading-tight">
+                                <span className="font-bold">{session.course_code}</span>
+                                <span className="font-semibold text-right">{session.faculty_name}</span>
+                              </div>
+                              <div className="text-xs sm:text-[13px] font-extrabold text-center uppercase tracking-tight py-1">
+                                {session.section_name}
+                              </div>
+                              <div className="text-[9px] text-right text-zinc-700">
+                                {session.course_name}
+                              </div>
+                            </div>
+                          )
+                        ) : null}
+                      </td>
+                    )}
+
+                    {isAfterLunch && dayIdx === 0 && (
+                      <td
+                        key="lunch-column-span"
+                        rowSpan={days.length}
+                        style={{
+                          width: '56px',
+                          border: '1.5px solid #000000',
+                          textAlign: 'center',
+                          verticalAlign: 'middle',
+                          backgroundColor: '#ffffff',
+                          padding: '6px 0',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            height: '100%',
+                            userSelect: 'none',
+                            color: '#000000',
+                          }}
+                        >
+                          {['L', 'U', 'N', 'C', 'H'].map((char, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                fontSize: '15px',
+                                lineHeight: '2.0',
+                                fontWeight: '800',
+                                letterSpacing: '0.15em',
+                                display: 'block',
+                              }}
+                            >
+                              {char}
+                            </span>
+                          ))}
                         </div>
-                      ) : type === 'FACULTY' ? (
-                        /* FACULTY WISE CELL (Matching Image 2): */
-                        /* Top-left: Course | Top-right: Room | Center/Bottom: Section */
-                        <div className="h-full flex flex-col justify-between text-black select-none">
-                          <div className="flex items-start justify-between text-[10px] sm:text-[11px] leading-tight">
-                            <span className="font-bold">{session.course_code}</span>
-                            <span className="font-semibold text-right">{session.room_code}</span>
-                          </div>
-                          <div className="text-xs sm:text-[13px] font-extrabold text-center uppercase tracking-tight py-1">
-                            {session.section_name}
-                          </div>
-                          <div className="text-[9px] text-right text-zinc-700">
-                            {session.room_name !== session.room_code ? session.room_name : ''}
-                          </div>
-                        </div>
-                      ) : (
-                        /* ROOM / CLASSROOM WISE CELL: */
-                        /* Top-left: Course | Top-right: Faculty | Center/Bottom: Section */
-                        <div className="h-full flex flex-col justify-between text-black select-none">
-                          <div className="flex items-start justify-between text-[10px] sm:text-[11px] leading-tight">
-                            <span className="font-bold">{session.course_code}</span>
-                            <span className="font-semibold text-right">{session.faculty_name}</span>
-                          </div>
-                          <div className="text-xs sm:text-[13px] font-extrabold text-center uppercase tracking-tight py-1">
-                            {session.section_name}
-                          </div>
-                          <div className="text-[9px] text-right text-zinc-700">
-                            {session.course_name}
-                          </div>
-                        </div>
-                      )
-                    ) : null}
-                  </td>
+                      </td>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tr>

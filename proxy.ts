@@ -17,11 +17,17 @@ const PROTECTED_PREFIXES = [
   '/seating',
 ];
 
-// Login bypass flag
-const BYPASS_AUTH = true;
+// Enforce authentication (login enabled)
+const BYPASS_AUTH = false;
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // If someone requests /signup, redirect immediately to /login
+  if (pathname === '/signup') {
+    return NextResponse.redirect(new URL('/login', req.url));
+  }
+
   const token = req.cookies.get('nitp_session')?.value;
 
   let isAuthenticated = BYPASS_AUTH;
@@ -35,7 +41,7 @@ export async function proxy(req: NextRequest) {
   }
 
   const isProtected = PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
-  const isAuthPage = pathname === '/login' || pathname === '/signup';
+  const isAuthPage = pathname === '/login';
 
   if (isProtected && !isAuthenticated) {
     const loginUrl = new URL('/login', req.url);

@@ -4,12 +4,12 @@
 [![React](https://img.shields.io/badge/React-19-blue?logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-v4-38bdf8?logo=tailwindcss)](https://tailwindcss.com/)
-[![SQLite](https://img.shields.io/badge/Database-SQLite-003B57?logo=sqlite)](https://www.sqlite.org/)
+[![Database](https://img.shields.io/badge/Database-MySQL%20%7C%20TiDB%20Cloud-00758F?logo=mysql&logoColor=white)](https://www.mysql.com/)
 [![License](https://img.shields.io/badge/License-NIT%20Patna-red)](#)
 
 An enterprise-grade, constraint-satisfaction university timetable generator and interactive scheduling studio engineered for the **National Institute of Technology Patna (NIT Patna)**. 
 
-The system automates the generation of collision-free, balanced academic schedules across classes, faculty, and lecture halls, featuring the **aPn Master Studio**, interactive availability matrices, conflict diagnostics, and official publication-ready PDF exports.
+The system automates the generation of collision-free, balanced academic schedules across classes, faculty, and lecture halls, featuring the **aPn Master Studio**, interactive availability matrices, conflict diagnostics, examination anti-cheating seating layouts, and official publication-ready PDF exports.
 
 ---
 
@@ -17,7 +17,7 @@ The system automates the generation of collision-free, balanced academic schedul
 
 ### 1. 🖥️ aPn Master Studio Multi-Track Grid
 - **Three Perspective Views**:
-  - **Classes / Sections**: Track each academic cohort (e.g. `CSE-I (Sem 4)`, `ECE-II (Sem 4)`).
+  - **Classes / Sections**: Track each academic cohort (e.g. `CSE-I (Sem 5)`, `ECE-II (Sem 5)`).
   - **Teachers / Faculty**: Track instructor schedules across departments with assigned weekly workloads.
   - **Classrooms / Labs**: Monitor physical lecture halls, computer centers, and specialized laboratories.
 - **Multi-Period Spanning**: 2-hour and 3-hour practical and workshop blocks span contiguously across period slots.
@@ -54,8 +54,7 @@ Places complex university workloads with a **100% placement rate** and zero hard
 - **Student Relief Invariants**:
   - **Zero Isolated 1-Hour Dead Gaps**: Compacted schedules eliminate empty gaps between classes.
   - **Zero Single-Class Days**: Students are never called to campus for only a 1-hour session.
-- **Progressive Lab Allocation Fallback**: Accommodates heavy lab cohorts (6–7 labs/week) by progressively allowing up to 2 labs per day separated by lunch.
-- **Phase 2D Lunch-Boundary Dead-Gap Resolver**: Detects boundary gaps across lunch and relocates single lectures to clean terminal slots.
+- **Progressive Lab Allocation Fallback**: Accommodates heavy lab cohorts by progressively allowing up to 2 labs per day separated by lunch.
 
 ### 5. 🔍 Timetable Conflict Checker & Diagnostics
 - One-click institutional schedule audit scanning for:
@@ -67,16 +66,12 @@ Places complex university workloads with a **100% placement rate** and zero hard
 
 ### 6. 📄 Official Institutional PDF Booklet Export Center
 - **Publication-Ready Layout**: Renders official high-contrast landscape timetable sheets matching the NIT Patna publication format.
-- **Vector PDF Generation**: Powered by jsPDF vector rendering—immune to canvas rendering errors, scalable, and crisp.
+- **Vector PDF Generation**: Powered by jsPDF vector rendering—scalable, crisp, and high-resolution.
 - **Multi-Page Booklets**: Generates combined multi-page PDF booklets for all sections, all teachers, or all classrooms in a single file.
-- **Customizable Institutional Watermark & Headers**:
-  - Institute Header Title (e.g. *National Institute of Technology Patna, Ashok Rajpath, Patna, Bihar*)
-  - Generated Date Stamp
-  - Watermark / Footer Tag (customizable, defaults to `aPn Timetables`)
 
 ### 7. 🪑 Anti-Cheating Examination Seating Engine (`lib/seating-engine.ts`)
 - Automated seat assignment for examination halls.
-- **Adjacent Interleaving Algorithm**: Alternates student cohorts so that no two students from the same department or semester sit adjacent to each other.
+- **Adjacent Interleaving Algorithm**: Alternates student cohorts so that no two students from the same department or semester sit adjacent to each other in row or column axes.
 
 ---
 
@@ -86,7 +81,8 @@ Places complex university workloads with a **100% placement rate** and zero hard
 |---|---|
 | **Framework** | Next.js 16 (App Router, Turbopack), React 19 |
 | **Styling** | Tailwind CSS v4, Lucide Icons, Custom High-Contrast Print Styles |
-| **Database** | SQLite via Node.js native engine / SQLite3 (`data/scheduler.db`) |
+| **Database** | Pure MySQL (`mysql2/promise`) — TiDB Cloud AWS / AWS RDS / MySQL 8.0+ |
+| **Connection Pooling** | Persistent Pool with keep-alive and automatic TLSv1.2 SSL negotiation |
 | **Vector Engine** | jsPDF (Landscape Vector PDF Generation) |
 | **Algorithms** | Constraint Satisfaction Problem (CSP) Solver, Student Interleaving Seating Generator |
 | **Language** | TypeScript 5 (Strict Mode) |
@@ -99,13 +95,12 @@ Places complex university workloads with a **100% placement rate** and zero hard
 nitp-timetable-generator/
 ├── app/
 │   ├── api/                      # REST API Endpoints
+│   │   ├── auth/                 # JWT & Google OAuth authentication
 │   │   ├── courses/              # Course CRUD & curriculum
 │   │   ├── departments/          # Academic departments
 │   │   ├── faculty/              # Instructor records & time-off
 │   │   ├── rooms/                # Classrooms & labs
 │   │   ├── schedule/             # Timetable sessions & solver trigger
-│   │   │   ├── [id]/             # Single session edit/delete
-│   │   │   └── generate/         # Solver invocation
 │   │   ├── seating/              # Exam seating arrangement
 │   │   ├── sections/             # Student cohorts & allocations
 │   │   └── students/             # Enrolled students directory
@@ -119,25 +114,23 @@ nitp-timetable-generator/
 │   │   └── types.ts              # Timetable TypeScript interfaces
 │   ├── seating/                  # Exam seating layout designer
 │   ├── sections/                 # Sections, courses & teaching allocations
-│   ├── globals.css               # Global theme, cursor rules & print specs
+│   ├── globals.css               # Global theme & print specifications
 │   └── layout.tsx                # App shell & layout wrapper
 ├── components/
 │   ├── layout/                   # Sidebar navigation & header
 │   ├── timetable/                # Time-Off matrix & timing dialogs
 │   └── ui/                       # Accessible Button, Input, Modal, Select
-├── data/
-│   ├── scheduler.db              # Active SQLite database (Bihta 2026 data)
-│   └── scheduler.db.bak_synthetic# Backup of synthetic test database
 ├── db/
-│   └── schema.sql                # Complete relational database DDL
+│   └── schema.sql                # Complete relational MySQL schema
 ├── lib/
-│   ├── db.ts                     # Database connection helper
+│   ├── auth.ts                   # JWT session management & auth helpers
+│   ├── db.ts                     # High-performance MySQL connection pool adapter
 │   ├── scheduler.ts              # Constraint-satisfaction timetable solver
 │   └── seating-engine.ts         # Anti-cheating exam seating algorithm
 ├── scripts/
-│   ├── init-db.ts                # Database migration & schema setup
-│   ├── seed-bihta-2026.ts        # Bihta Campus Even Sem 2026 data seeder
+│   ├── init-db.ts                # Database migration & seed setup
 │   └── verify-all.ts             # Comprehensive automated test suite
+├── .env.example                  # Environment configuration template
 ├── package.json
 └── README.md
 ```
@@ -149,8 +142,9 @@ nitp-timetable-generator/
 ### Prerequisites
 - **Node.js**: v20.x or higher
 - **npm** or **pnpm**
+- **MySQL Database**: TiDB Cloud (AWS), Amazon RDS MySQL, or a local MySQL 8.0+ server
 
-### Installation
+### Installation & Local Setup
 
 1. **Clone the repository:**
    ```bash
@@ -163,22 +157,41 @@ nitp-timetable-generator/
    npm install
    ```
 
-3. **Initialize the database:**
+3. **Configure Environment Variables:**
+   Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+   Add your MySQL credentials and a random JWT secret:
+   ```env
+   DATABASE_URL=mysql://USER:PASSWORD@HOST:PORT/DATABASE?ssl={"rejectUnauthorized":true}
+   JWT_SECRET=your-random-48-character-jwt-secret-here
+   ```
+
+4. **Initialize & Seed the Database:**
+   Creates tables and seeds departments, faculty, rooms, courses, and cohort sections:
    ```bash
    npm run db:init
    ```
 
-4. **Seed authentic NIT Patna Bihta Campus (Even Semester 2026) data:**
-   ```bash
-   npx tsx scripts/seed-bihta-2026.ts
-   ```
-
-5. **Start the development server:**
+5. **Start the Development Server:**
    ```bash
    npm run dev
    ```
+   Open [http://localhost:3010](http://localhost:3010) in your browser. Default login: `admin@nitp.ac.in` / `AdminPassword123!`.
 
-6. Open [http://localhost:3000](http://localhost:3000) (or the active port shown in terminal) in your browser.
+---
+
+## ☁️ Deploying to Vercel
+
+1. Push your repository to GitHub.
+2. In [Vercel](https://vercel.com), create a **New Project** and import your repository.
+3. Add the following **Environment Variables** in Vercel:
+   - `DATABASE_URL`: Your full MySQL connection string (e.g. TiDB Cloud or AWS RDS).
+   - `JWT_SECRET`: Random 48-byte hex string (generate via `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`).
+   - `NEXT_PUBLIC_APP_URL`: `https://your-app.vercel.app`.
+   - `GOOGLE_CLIENT_ID` & `GOOGLE_CLIENT_SECRET`: *(Optional)* If using Google SSO.
+4. Click **Deploy**.
 
 ---
 
@@ -200,9 +213,10 @@ nitp-timetable-generator/
 
 ---
 
-## 👥 Contributors & Acknowledgements
+## 👥 Institution & Credits
 
 Developed for the **National Institute of Technology Patna (NIT Patna)** academic coordination and timetable scheduling committees.
 
 - **Institution**: [National Institute of Technology Patna](https://www.nitp.ac.in)
-- **Campus**: Ashok Rajpath Main Campus & Bihta Campus
+- **Campuses**: Ashok Rajpath Main Campus & Bihta Campus
+

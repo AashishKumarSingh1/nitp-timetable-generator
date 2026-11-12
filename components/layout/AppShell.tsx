@@ -146,8 +146,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // If on login or signup pages, render children without the shell
-  if (pathname === '/login' || pathname === '/signup') {
+  // If on login page, render children without the shell
+  if (pathname === '/login') {
     return <>{children}</>;
   }
 

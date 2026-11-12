@@ -231,7 +231,7 @@ export function isLabSession(session: {
   const rt = session.room_type?.toUpperCase() || '';
   if (rt === 'LAB' || rt === 'COMPUTER_LAB') return true;
   const code = session.course_code?.toUpperCase() || '';
-  if (code.endsWith('L') || code.includes('LAB')) return true;
+  if (code.endsWith('L') || code.endsWith('-PR') || code.includes('LAB') || code.includes('-LAB')) return true;
   const name = session.course_name?.toLowerCase() || '';
   if (name.includes('lab') || name.includes('laboratory') || name.includes('practical')) return true;
   return false;
@@ -290,8 +290,9 @@ export function mergeAdjacentSessions(
         }
       }
 
-      if (isSameCourse && isSameFaculty && isSameRoom && isContiguous && !crossesLunch) {
-        // Merge session into prev
+      const isLab = isLabSession(prev) || isLabSession(session);
+      if (isLab && isSameCourse && isSameFaculty && isSameRoom && isContiguous && !crossesLunch && (prev.span + session.span <= 2)) {
+        // Merge lab session into prev (max 2 hours)
         prev.span += session.span;
         prev.is_pinned = Boolean(prev.is_pinned) || Boolean(session.is_pinned);
         if (!prev.mergedIds) {
@@ -380,17 +381,16 @@ export function calculateSessionSpans(
     if (periods === 2) return [2];
     if (periods === 3) return [2, 1];
     if (periods === 4) return [2, 1, 1];
-    if (periods === 5) return [2, 2, 1];
+    // 5 periods in NIT Patna curriculum: 3 hours Theory (1+1+1) + 2 hours Practical Lab (2)
+    if (periods === 5) return [2, 1, 1, 1];
     if (periods === 6) return [2, 2, 1, 1];
 
-    const spans: number[] = [];
-    let rem = periods;
-    while (rem > 2) {
-      spans.push(2);
-      rem -= 2;
+    const spans: number[] = [2];
+    let rem = periods - 2;
+    while (rem > 0) {
+      spans.push(1);
+      rem -= 1;
     }
-    if (rem === 2) spans.push(2);
-    else if (rem === 1) spans.push(1);
     return spans;
   }
 
