@@ -44,6 +44,7 @@ async function initDb() {
     "ALTER TABLE teaching_assignments ADD COLUMN batch VARCHAR(50) DEFAULT 'ALL'",
     "ALTER TABLE courses ADD COLUMN lesson_format VARCHAR(20) DEFAULT '1_AT_A_TIME'",
     "ALTER TABLE teaching_assignments ADD COLUMN lesson_format VARCHAR(20) DEFAULT 'DEFAULT'",
+    "ALTER TABLE courses ADD COLUMN semester INT DEFAULT 1",
   ];
 
   for (const mig of migrations) {
