@@ -54,6 +54,11 @@ function LoginForm() {
   const handleGoogleSignIn = () => {
     setIsLoading(true);
     setErrorMessage('');
+    // Ensure localhost is used for Google OAuth compliance if running locally on 0.0.0.0 or 127.0.0.1
+    if (typeof window !== 'undefined' && (window.location.hostname === '0.0.0.0' || window.location.hostname === '127.0.0.1')) {
+      window.location.href = `http://localhost:${window.location.port || '3010'}/api/auth/google`;
+      return;
+    }
     // Full browser navigation required for OAuth handshake
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.href = '/api/auth/google';

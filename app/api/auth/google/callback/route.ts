@@ -2,13 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { loginOrCreateGoogleUser } from '@/lib/auth';
 
+function getOAuthOrigin(req: NextRequest): string {
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || req.nextUrl.host;
+  const proto = req.headers.get('x-forwarded-proto') || (req.url.startsWith('https') ? 'https' : 'http');
+
+  if (host.includes('0.0.0.0') || host.includes('127.0.0.1')) {
+    const port = host.split(':')[1] || '3010';
+    return `http://localhost:${port}`;
+  }
+
+  return `${proto}://${host}`;
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const code = searchParams.get('code');
   const state = searchParams.get('state');
   const error = searchParams.get('error');
 
-  const origin = req.nextUrl.origin;
+  const origin = getOAuthOrigin(req);
 
   if (error) {
     return NextResponse.redirect(
