@@ -12,6 +12,7 @@ async function ensureTables() {
       semester INT NOT NULL DEFAULT 3,
       strength INT NOT NULL DEFAULT 60,
       academic_year VARCHAR(20) NOT NULL DEFAULT '2026-27',
+      lunch_after_period INT NOT NULL DEFAULT 4,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT uq_dept_section_sem UNIQUE (department_id, name, semester)
@@ -40,7 +41,7 @@ export async function GET(req: NextRequest) {
 
     let sql = `
       SELECT s.id, s.name, s.department_id, s.semester, s.strength, s.academic_year,
-             s.time_off, s.color,
+             s.lunch_after_period, s.time_off, s.color,
              d.name AS department_name, d.code AS department_code,
              COUNT(DISTINCT ta.id) AS assigned_courses_count
       FROM sections s
@@ -55,7 +56,7 @@ export async function GET(req: NextRequest) {
       params.push(departmentId);
     }
 
-    sql += ' GROUP BY s.id, s.name, s.department_id, s.semester, s.strength, s.academic_year, s.time_off, s.color, d.name, d.code';
+    sql += ' GROUP BY s.id, s.name, s.department_id, s.semester, s.strength, s.academic_year, s.lunch_after_period, s.time_off, s.color, d.name, d.code';
     sql += ' ORDER BY d.name ASC, s.semester ASC, s.name ASC';
 
     let sections = await query(sql, params);
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest) {
   try {
     await ensureTables();
     const body = await req.json();
-    const { name, department_id, semester = 3, strength = 60, academic_year = '2026-27' } = body;
+    const { name, department_id, semester = 3, strength = 60, academic_year = '2026-27', lunch_after_period = 4 } = body;
 
     if (!name || !department_id) {
       return NextResponse.json(
@@ -101,9 +102,9 @@ export async function POST(req: NextRequest) {
 
     const id = crypto.randomUUID();
     await execute(
-      `INSERT INTO sections (id, name, department_id, semester, strength, academic_year)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [id, name.trim(), department_id, Number(semester), Number(strength), academic_year.trim()]
+      `INSERT INTO sections (id, name, department_id, semester, strength, academic_year, lunch_after_period)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, name.trim(), department_id, Number(semester), Number(strength), academic_year.trim(), Number(lunch_after_period) || 4]
     );
 
     return NextResponse.json({ success: true, id }, { status: 201 });

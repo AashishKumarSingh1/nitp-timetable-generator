@@ -331,33 +331,24 @@ export default function FacultyPage() {
 
   return (
     <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 flex items-center gap-2.5">
-            <Users className="w-6 h-6 text-red-700" />
-            Faculty Roster & Teaching Caps
-          </h1>
-        </div>
+      {/* Top Actions Bar */}
+      <div className="flex items-center justify-end gap-2.5">
+        <Button
+          onClick={() => {
+            setDryRunRows([]);
+            setIsBulkModalOpen(true);
+          }}
+          variant="outline"
+          className="text-xs"
+        >
+          <Upload className="w-4 h-4 mr-1.5 text-red-700" />
+          CSV Bulk Upload
+        </Button>
 
-        <div className="flex items-center gap-2.5">
-          <Button
-            onClick={() => {
-              setDryRunRows([]);
-              setIsBulkModalOpen(true);
-            }}
-            variant="outline"
-            className="text-xs"
-          >
-            <Upload className="w-4 h-4 mr-1.5 text-red-700" />
-            CSV Bulk Upload
-          </Button>
-
-          <Button onClick={handleOpenAdd} variant="primary" className="text-xs">
-            <Plus className="w-4 h-4 mr-1.5" />
-            Add Faculty
-          </Button>
-        </div>
+        <Button onClick={handleOpenAdd} variant="primary" className="text-xs">
+          <Plus className="w-4 h-4 mr-1.5" />
+          Add Faculty
+        </Button>
       </div>
 
       {/* Filter and Search Bar */}

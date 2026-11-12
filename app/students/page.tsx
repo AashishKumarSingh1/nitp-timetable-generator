@@ -316,16 +316,8 @@ export default function StudentsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 flex items-center gap-2.5">
-            <GraduationCap className="w-6 h-6 text-red-700" />
-            Student Cohort Directory
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2.5">
+      {/* Top Actions Bar */}
+      <div className="flex items-center justify-end gap-2.5">
           <Button
             onClick={() => {
               setDryRunRows([]);
@@ -342,7 +334,6 @@ export default function StudentsPage() {
             Add Student
           </Button>
         </div>
-      </div>
 
       {/* KPI Stats Ribbon */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

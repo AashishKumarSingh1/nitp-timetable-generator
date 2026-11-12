@@ -187,9 +187,14 @@ export function SectionsTab({
                         <div className="text-[11px] text-zinc-500">{sec.department_name}</div>
                       </td>
                       <td className="py-3.5 px-4 text-center">
-                        <span className="px-2.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 font-bold text-[11px]">
-                          Semester {sec.semester}
-                        </span>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="px-2.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 font-bold text-[11px]">
+                            Semester {sec.semester}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/60 text-[10px] font-medium whitespace-nowrap">
+                            Lunch: After P{sec.lunch_after_period || 4}
+                          </span>
+                        </div>
                       </td>
                       <td className="py-3.5 px-4 text-center">
                         <span className="inline-flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-lg bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 font-mono text-xs">

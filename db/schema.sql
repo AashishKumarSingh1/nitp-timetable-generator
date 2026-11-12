@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS sections (
     semester INT NOT NULL DEFAULT 3,
     strength INT NOT NULL DEFAULT 60,   -- Student capacity / strength
     academic_year VARCHAR(20) NOT NULL DEFAULT '2026-27',
+    lunch_after_period INT NOT NULL DEFAULT 4, -- Period after which lunch break occurs (e.g. 3, 4, 5)
     time_off TEXT DEFAULT NULL,       -- JSON: Record<DayOfWeek, (0|1|2)[]>
     color VARCHAR(20) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

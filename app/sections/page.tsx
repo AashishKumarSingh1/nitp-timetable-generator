@@ -135,17 +135,8 @@ export default function SectionsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 flex items-center gap-2.5">
-            <Layers className="w-6 h-6 text-red-700" />
-            Curriculum, Sections & Allocations
-          </h1>
-        </div>
-
-        {/* Dynamic Contextual Action Button */}
-        <div className="flex items-center gap-2">
+      {/* Top Dynamic Actions Bar */}
+      <div className="flex items-center justify-end gap-2">
           {activeTab === 'SECTIONS' && (
             <Button onClick={handleOpenAddSection} variant="primary" className="text-xs shrink-0">
               <Plus className="w-4 h-4 mr-1.5" />
@@ -177,7 +168,6 @@ export default function SectionsPage() {
             </div>
           )}
         </div>
-      </div>
 
       {/* Primary Sub-Tabs Navigation Bar */}
       <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-800 max-w-fit">

@@ -68,14 +68,6 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Top Header */}
-      <div className="pb-5 border-b border-zinc-900">
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 flex items-center gap-2.5">
-          <LayoutDashboard className="w-6 h-6 text-red-700" />
-          Dashboard
-        </h1>
-      </div>
-
       {/* KPI Numerical Counters */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Link href="/departments" className="group">

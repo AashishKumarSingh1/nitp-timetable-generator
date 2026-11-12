@@ -239,7 +239,7 @@ export function isLabSession(session: {
 
 export function mergeAdjacentSessions(
   rawSessions: ClassSession[],
-  lunchAfterPeriod = -1
+  lunchAfterPeriod: number | Record<string, number> = -1
 ): ClassSession[] {
   if (!rawSessions || rawSessions.length === 0) return [];
 
@@ -283,9 +283,12 @@ export function mergeAdjacentSessions(
 
       // Cannot cross lunch recess
       let crossesLunch = false;
-      if (lunchAfterPeriod > 0) {
+      const effectiveLunch = typeof lunchAfterPeriod === 'object' && lunchAfterPeriod !== null
+        ? (lunchAfterPeriod[session.section_name] ?? -1)
+        : (lunchAfterPeriod ?? -1);
+      if (effectiveLunch > 0) {
         const prevEndsAt = prev.period_index + prev.span - 1;
-        if (prevEndsAt <= lunchAfterPeriod && session.period_index > lunchAfterPeriod) {
+        if (prevEndsAt <= effectiveLunch && session.period_index > effectiveLunch) {
           crossesLunch = true;
         }
       }

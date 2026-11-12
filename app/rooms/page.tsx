@@ -252,15 +252,8 @@ export default function RoomsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 flex items-center gap-2.5">
-            <DoorOpen className="w-6 h-6 text-red-700" />
-            Rooms & Lecture Halls Directory
-          </h1>
-        </div>
-
+      {/* Top Actions Bar */}
+      <div className="flex items-center justify-end">
         <Button onClick={handleOpenAdd} variant="primary" className="shrink-0 text-xs">
           <Plus className="w-4 h-4 mr-1.5" />
           Add Room / Hall
