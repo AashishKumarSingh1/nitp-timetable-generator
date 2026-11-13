@@ -408,30 +408,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Dedicated Institutional Topbar (Sticky) */}
         <header className="no-print sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-zinc-200 px-4 sm:px-6 lg:px-8 py-2.5 transition-colors shadow-2xs">
           <div className="flex items-center justify-between gap-4 max-w-7xl mx-auto w-full">
-            {/* Left: Sidebar toggle trigger & Breadcrumbs */}
+            {/* Left: Mobile sidebar toggle trigger & Breadcrumbs */}
             <div className="flex items-center gap-3">
               <button
-                onClick={() => {
-                  if (typeof window !== 'undefined' && window.innerWidth < 768) {
-                    setSidebarOpen(!sidebarOpen);
-                  } else {
-                    toggleCollapsed();
-                  }
-                }}
-                aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                title={
-                  isCollapsed
-                    ? 'Expand sidebar (Ctrl+B)'
-                    : 'Collapse sidebar (Ctrl+B)'
-                }
-                className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors flex items-center justify-center cursor-pointer"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                aria-label="Toggle mobile navigation menu"
+                className="md:hidden p-1.5 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors flex items-center justify-center cursor-pointer"
               >
-                <Menu className="w-5 h-5 md:hidden" />
-                {isCollapsed ? (
-                  <PanelLeftOpen className="w-5 h-5 hidden md:block" />
-                ) : (
-                  <PanelLeftClose className="w-5 h-5 hidden md:block" />
-                )}
+                <Menu className="w-5 h-5" />
               </button>
 
               <div className="flex items-center gap-2.5">

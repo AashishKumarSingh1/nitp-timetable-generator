@@ -29,6 +29,7 @@ export function SectionModal({
   const [departmentId, setDepartmentId] = useState('');
   const [semester, setSemester] = useState(3);
   const [strength, setStrength] = useState(60);
+  const [lunchAfterPeriod, setLunchAfterPeriod] = useState(4);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -37,11 +38,13 @@ export function SectionModal({
       setDepartmentId(editingSection.department_id);
       setSemester(editingSection.semester);
       setStrength(editingSection.strength);
+      setLunchAfterPeriod(editingSection.lunch_after_period ?? 4);
     } else {
       setName('Section A');
       setDepartmentId(departments[0]?.id || '');
       setSemester(3);
       setStrength(60);
+      setLunchAfterPeriod(4);
     }
   }, [editingSection, departments, isOpen]);
 
@@ -59,6 +62,7 @@ export function SectionModal({
         department_id: departmentId,
         semester: Number(semester),
         strength: Number(strength),
+        lunch_after_period: Number(lunchAfterPeriod) || 4,
       };
 
       const url = editingSection ? `/api/sections/${editingSection.id}` : '/api/sections';
@@ -136,6 +140,16 @@ export function SectionModal({
             required
           />
         </div>
+
+        <Select
+          label="Lunch Break Slot (Recess Timing)"
+          value={lunchAfterPeriod}
+          onChange={(e) => setLunchAfterPeriod(Number(e.target.value))}
+        >
+          <option value={3}>Early Lunch: Recess after Period 3 (11:30 - 12:25)</option>
+          <option value={4}>Standard Lunch: Recess after Period 4 (12:25 - 13:30)</option>
+          <option value={5}>Late Lunch: Recess after Period 5 (13:30 - 14:25)</option>
+        </Select>
 
         <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
           <Button type="button" variant="outline" size="sm" onClick={onClose}>

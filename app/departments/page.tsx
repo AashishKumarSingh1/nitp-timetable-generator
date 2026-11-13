@@ -135,29 +135,20 @@ export default function DepartmentsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 flex items-center gap-2.5">
-            <Building2 className="w-6 h-6 text-red-700" />
-            Academic Departments Directory
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={() => setIsTimingModalOpen(true)}
-            variant="outline"
-            className="shrink-0 text-xs border-zinc-300 hover:border-red-600 hover:text-red-700"
-          >
-            <Clock className="w-4 h-4 mr-1.5 text-zinc-600" />
-            Timing & Lunch Schedule
-          </Button>
-          <Button onClick={handleOpenAdd} variant="primary" className="shrink-0 text-xs">
-            <Plus className="w-4 h-4 mr-1.5" />
-            Add Department
-          </Button>
-        </div>
+      {/* Top Actions Bar */}
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          onClick={() => setIsTimingModalOpen(true)}
+          variant="outline"
+          className="shrink-0 text-xs border-zinc-300 hover:border-red-600 hover:text-red-700"
+        >
+          <Clock className="w-4 h-4 mr-1.5 text-zinc-600" />
+          Timing & Lunch Schedule
+        </Button>
+        <Button onClick={handleOpenAdd} variant="primary" className="shrink-0 text-xs">
+          <Plus className="w-4 h-4 mr-1.5" />
+          Add Department
+        </Button>
       </div>
 
       {/* Aggregate KPI Strip */}

@@ -8,6 +8,7 @@ export interface Section {
   department_name: string;
   department_code: string;
   assigned_courses_count: number;
+  lunch_after_period?: number;
   time_off?: string | null;
   color?: string | null;
 }

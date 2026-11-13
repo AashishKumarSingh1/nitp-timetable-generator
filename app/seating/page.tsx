@@ -278,16 +278,8 @@ export default function SeatingPage() {
 
   return (
     <div className="space-y-6">
-      {/* Top Header - No-print in print layout */}
-      <div className="no-print flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 flex items-center gap-2.5">
-            <Armchair className="w-6 h-6 text-red-700" />
-            Automated Exam Seating Arrangement Planner
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2.5">
+      {/* Top Actions - No-print in print layout */}
+      <div className="no-print flex items-center justify-end gap-2.5">
           <Button onClick={handlePrint} variant="outline" className="text-xs">
             <Printer className="w-4 h-4 mr-1.5" />
             Print Door Notice (A4)
@@ -298,7 +290,6 @@ export default function SeatingPage() {
             New Exam Session
           </Button>
         </div>
-      </div>
 
       {/* Control Configuration Bar */}
       <Card className="no-print border-zinc-200 dark:border-zinc-800">

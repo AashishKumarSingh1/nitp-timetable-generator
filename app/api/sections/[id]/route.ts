@@ -9,6 +9,7 @@ export async function GET(
     const { id } = await params;
     const section = await query(
       `SELECT s.id, s.name, s.department_id, s.semester, s.strength, s.academic_year,
+              s.lunch_after_period, s.time_off, s.color,
               d.name AS department_name, d.code AS department_code
        FROM sections s
        JOIN departments d ON d.id = s.department_id
@@ -46,7 +47,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { name, department_id, semester, strength, academic_year, time_off, color } = body;
+    const { name, department_id, semester, strength, academic_year, lunch_after_period, time_off, color } = body;
 
     const timeOffStr = typeof time_off === 'object' && time_off !== null ? JSON.stringify(time_off) : time_off;
 
@@ -57,6 +58,7 @@ export async function PUT(
            semester = COALESCE(?, semester),
            strength = COALESCE(?, strength),
            academic_year = COALESCE(?, academic_year),
+           lunch_after_period = COALESCE(?, lunch_after_period),
            time_off = COALESCE(?, time_off),
            color = COALESCE(?, color),
            updated_at = CURRENT_TIMESTAMP
@@ -67,6 +69,7 @@ export async function PUT(
         semester !== undefined ? Number(semester) : null,
         strength !== undefined ? Number(strength) : null,
         academic_year ? academic_year.trim() : null,
+        lunch_after_period !== undefined ? Number(lunch_after_period) : null,
         timeOffStr !== undefined ? timeOffStr : null,
         color !== undefined ? color : null,
         id,

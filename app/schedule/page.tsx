@@ -59,6 +59,7 @@ import {
   mergeAdjacentSessions,
   isSameSection,
   calculateSessionSpans,
+  getSectionTimingDetails,
   type LessonFormat,
 } from './types';
 
@@ -122,6 +123,7 @@ export default function SchedulePage() {
   const [faculty, setFaculty] = useState<FilterOption[]>([]);
   const [courses, setCourses] = useState<CourseOption[]>([]);
   const [sections, setSectionsList] = useState<string[]>(['CSE - Section A', 'CSE - Section B']);
+  const [sectionLunchMap, setSectionLunchMap] = useState<Record<string, number>>({});
 
   // Working days (5 or 6)
   const [workingDays, setWorkingDays] = useState<5 | 6>(5);
@@ -243,6 +245,16 @@ export default function SchedulePage() {
         });
         setSectionsList(secNames);
         setRawSections(sData.sections.map((s: any) => ({ id: s.id, name: s.name })));
+        const lunchMap: Record<string, number> = {};
+        sData.sections.forEach((s: any) => {
+          const displayName = s.department_code && !s.name.toUpperCase().startsWith(s.department_code.toUpperCase())
+            ? `${s.department_code} - ${s.name}`
+            : s.name;
+          const p = Number(s.lunch_after_period) || 4;
+          lunchMap[displayName] = p;
+          lunchMap[s.name] = p;
+        });
+        setSectionLunchMap(lunchMap);
         setSelectedSection((prev) => (secNames.includes(prev) ? prev : secNames[0]));
         if (!exportSpecificSection) {
           setExportSpecificSection(secNames[0]);
@@ -837,9 +849,15 @@ export default function SchedulePage() {
   const displayDays = workingDays === 6 ? DAYS : DAYS.slice(0, 5);
 
   // Divide periods around lunch break for interactive screen view
-  const lunchAfter = timingConfig.hasLunchBreak ? timingConfig.lunchAfterPeriod : -1;
-  const morningPeriods = lunchAfter > 0 ? timingConfig.periods.slice(0, lunchAfter) : timingConfig.periods;
-  const afternoonPeriods = lunchAfter > 0 ? timingConfig.periods.slice(lunchAfter) : [];
+  const activeSecLunch = (filterMode === 'SECTION' && selectedSection && sectionLunchMap[selectedSection])
+    ? sectionLunchMap[selectedSection]
+    : timingConfig.lunchAfterPeriod;
+  const currentTiming = getSectionTimingDetails(activeSecLunch, timingConfig.preset);
+  const activePeriods = filterMode === 'SECTION' ? currentTiming.periods : timingConfig.periods;
+  const activeLunchTime = filterMode === 'SECTION' ? currentTiming.lunchTime : timingConfig.lunchTime;
+  const lunchAfter = timingConfig.hasLunchBreak ? activeSecLunch : -1;
+  const morningPeriods = lunchAfter > 0 ? activePeriods.slice(0, lunchAfter) : activePeriods;
+  const afternoonPeriods = lunchAfter > 0 ? activePeriods.slice(lunchAfter) : [];
 
   // Merged sessions for display, export, and matrix (merges adjacent 1h slots of same class)
   const displaySessions = useMemo(
@@ -847,8 +865,8 @@ export default function SchedulePage() {
     [sessions, lunchAfter]
   );
   const displayAllSessions = useMemo(
-    () => mergeAdjacentSessions(allSessions, lunchAfter),
-    [allSessions, lunchAfter]
+    () => mergeAdjacentSessions(allSessions, sectionLunchMap),
+    [allSessions, sectionLunchMap]
   );
 
   const sessionMatrix = new Map<string, ClassSession>();
@@ -933,20 +951,33 @@ export default function SchedulePage() {
   const exportSheets = useMemo(() => {
     if (exportType === 'SECTION') {
       if (exportScope === 'SPECIFIC') {
+        const secName = exportSpecificSection || 'Section';
+        const sLunch = sectionLunchMap[secName] || timingConfig.lunchAfterPeriod;
+        const timingDetails = getSectionTimingDetails(sLunch, timingConfig.preset);
         return [
           {
-            title: exportSpecificSection || 'Section',
+            title: secName,
             type: 'SECTION' as const,
-            sessions: sessionsBySection.get(exportSpecificSection) || [],
+            sessions: sessionsBySection.get(secName) || [],
+            lunchAfterPeriod: sLunch,
+            periods: timingDetails.periods,
+            lunchTime: timingDetails.lunchTime,
           },
         ];
       }
       const list = sections.length > 0 ? sections : Array.from(sessionsBySection.keys());
-      return list.map((sec) => ({
-        title: sec,
-        type: 'SECTION' as const,
-        sessions: sessionsBySection.get(sec) || [],
-      }));
+      return list.map((sec) => {
+        const sLunch = sectionLunchMap[sec] || timingConfig.lunchAfterPeriod;
+        const timingDetails = getSectionTimingDetails(sLunch, timingConfig.preset);
+        return {
+          title: sec,
+          type: 'SECTION' as const,
+          sessions: sessionsBySection.get(sec) || [],
+          lunchAfterPeriod: sLunch,
+          periods: timingDetails.periods,
+          lunchTime: timingDetails.lunchTime,
+        };
+      });
     } else if (exportType === 'FACULTY') {
       if (exportScope === 'SPECIFIC') {
         const fac = faculty.find((f) => f.id === exportSpecificFacultyId);
@@ -955,6 +986,9 @@ export default function SchedulePage() {
             title: fac ? `Teacher ${fac.name} (${fac.code})` : 'Faculty Timetable',
             type: 'FACULTY' as const,
             sessions: sessionsByFaculty.get(exportSpecificFacultyId) || [],
+            lunchAfterPeriod: timingConfig.lunchAfterPeriod,
+            periods: timingConfig.periods,
+            lunchTime: timingConfig.lunchTime,
           },
         ];
       }
@@ -962,6 +996,9 @@ export default function SchedulePage() {
         title: `Teacher ${fac.name} (${fac.code})`,
         type: 'FACULTY' as const,
         sessions: sessionsByFaculty.get(fac.id) || [],
+        lunchAfterPeriod: timingConfig.lunchAfterPeriod,
+        periods: timingConfig.periods,
+        lunchTime: timingConfig.lunchTime,
       }));
     } else {
       // ROOM / CLASSROOM WISE
@@ -972,6 +1009,9 @@ export default function SchedulePage() {
             title: rm ? `${rm.code} - ${rm.name}` : 'Classroom Timetable',
             type: 'ROOM' as const,
             sessions: sessionsByRoom.get(exportSpecificRoomId) || [],
+            lunchAfterPeriod: timingConfig.lunchAfterPeriod,
+            periods: timingConfig.periods,
+            lunchTime: timingConfig.lunchTime,
           },
         ];
       }
@@ -979,6 +1019,9 @@ export default function SchedulePage() {
         title: `${rm.code} - ${rm.name}`,
         type: 'ROOM' as const,
         sessions: sessionsByRoom.get(rm.id) || [],
+        lunchAfterPeriod: timingConfig.lunchAfterPeriod,
+        periods: timingConfig.periods,
+        lunchTime: timingConfig.lunchTime,
       }));
     }
   }, [
@@ -993,6 +1036,11 @@ export default function SchedulePage() {
     sessionsBySection,
     sessionsByFaculty,
     sessionsByRoom,
+    sectionLunchMap,
+    timingConfig.lunchAfterPeriod,
+    timingConfig.preset,
+    timingConfig.periods,
+    timingConfig.lunchTime,
   ]);
 
   // =========================================================================
@@ -1000,12 +1048,84 @@ export default function SchedulePage() {
   // Generates razor-sharp, publication-ready vector PDFs directly to device.
   // 100% immune to html2canvas CSS Color 4 (lab / oklch) parser errors.
   // =========================================================================
+  // Helper for rendering faculty name in PDF cells with intelligent middle-initial formatting
+  // and dynamic font sizing (never falls back to raw faculty code like FAC-CSE-SS)
+  const getOptimizedFacultyText = (
+    pdf: any,
+    name: string,
+    maxWidth: number
+  ): { text: string; fontSize: number } => {
+    if (!name) return { text: '', fontSize: 8 };
+    const raw = name.trim();
+    const candidates: string[] = [raw];
+
+    const parts = raw.split(/\s+/);
+    if (parts.length >= 3) {
+      const hasTitle = /^(Dr\.|Prof\.|Mr\.|Mrs\.|Ms\.)/i.test(parts[0]);
+      if (hasTitle) {
+        // e.g. Dr. Santosh Kumar Tripathy -> Dr. S. K. Tripathy
+        const initials = parts.slice(1, -1).map((p) => p[0].toUpperCase() + '.').join(' ');
+        candidates.push(`${parts[0]} ${initials} ${parts[parts.length - 1]}`);
+        // e.g. Dr. Santosh Kumar Tripathy -> Dr. S. Tripathy
+        candidates.push(`${parts[0]} ${parts[1][0].toUpperCase()}. ${parts[parts.length - 1]}`);
+      } else {
+        // e.g. Santosh Kumar Tripathy -> S. K. Tripathy
+        const initials = parts.slice(0, -1).map((p) => p[0].toUpperCase() + '.').join(' ');
+        candidates.push(`${initials} ${parts[parts.length - 1]}`);
+        // e.g. Santosh Kumar Tripathy -> S. Tripathy
+        candidates.push(`${parts[0][0].toUpperCase()}. ${parts[parts.length - 1]}`);
+      }
+    } else if (parts.length === 2) {
+      const hasTitle = /^(Dr\.|Prof\.|Mr\.|Mrs\.|Ms\.)/i.test(parts[0]);
+      if (!hasTitle) {
+        // e.g. Shyam Sundar -> S. Sundar
+        candidates.push(`${parts[0][0].toUpperCase()}. ${parts[1]}`);
+      }
+    }
+
+    // 1. Try full name across font sizes 8 down to 5.5
+    for (const size of [8, 7.5, 7, 6.5, 6, 5.5]) {
+      pdf.setFontSize(size);
+      if (pdf.getTextWidth(raw) <= maxWidth) {
+        return { text: raw, fontSize: size };
+      }
+    }
+
+    // 2. Try abbreviated versions across font sizes 7.5 down to 5.5
+    for (let i = 1; i < candidates.length; i++) {
+      const cand = candidates[i];
+      for (const size of [7.5, 7, 6.5, 6, 5.5]) {
+        pdf.setFontSize(size);
+        if (pdf.getTextWidth(cand) <= maxWidth) {
+          return { text: cand, fontSize: size };
+        }
+      }
+    }
+
+    // 3. Last fallback: best candidate at 5pt or truncated with ellipsis if still overflowing
+    const bestCand = candidates[candidates.length - 1];
+    pdf.setFontSize(5.5);
+    if (pdf.getTextWidth(bestCand) <= maxWidth) {
+      return { text: bestCand, fontSize: 5.5 };
+    }
+
+    pdf.setFontSize(5);
+    let truncated = bestCand;
+    while (truncated.length > 3 && pdf.getTextWidth(truncated + '...') > maxWidth) {
+      truncated = truncated.slice(0, -1);
+    }
+    return { text: truncated + '...', fontSize: 5 };
+  };
+
   const renderApnSheetToPdf = (
     pdf: any,
     sheet: {
       title: string;
       type: 'SECTION' | 'FACULTY' | 'ROOM';
       sessions: ClassSession[];
+      lunchAfterPeriod?: number;
+      periods?: PeriodSlot[];
+      lunchTime?: string;
     },
     options: {
       instituteHeader: string;
@@ -1028,11 +1148,12 @@ export default function SchedulePage() {
     const headerHeight = 13;
 
     const days = options.days || ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
-    const periods = options.periods;
+    const periods = sheet.periods || options.periods;
 
-    const hasLunch = options.hasLunchBreak !== false && (options.lunchAfterPeriod ?? 4) > 0;
-    const lunchAfter = hasLunch ? (options.lunchAfterPeriod ?? 4) : 0;
-    const lunchTime = options.lunchTime || '12:25 - 13:30';
+    const sheetLunch = sheet.lunchAfterPeriod ?? options.lunchAfterPeriod ?? 4;
+    const hasLunch = options.hasLunchBreak !== false && sheetLunch > 0;
+    const lunchAfter = hasLunch ? sheetLunch : 0;
+    const lunchTime = sheet.lunchTime || options.lunchTime || '12:25 - 13:30';
     const lunchLabel = options.lunchLabel || 'LUNCH';
     const lunchColWidth = hasLunch ? 18 : 0;
 
@@ -1190,17 +1311,11 @@ export default function SchedulePage() {
               { align: 'center' }
             );
 
-            // Bottom-right: Faculty Name (auto-adjust size if long)
+            // Bottom-right: Faculty Name (never fall back to internal code)
             pdf.setFont('helvetica', 'bold');
-            pdf.setFontSize(8);
-            let fac = session.faculty_name || '';
-            if (pdf.getTextWidth(fac) > cellW - 5) {
-              pdf.setFontSize(7);
-              if (pdf.getTextWidth(fac) > cellW - 5) {
-                fac = session.faculty_code || fac;
-              }
-            }
-            pdf.text(fac, x + cellW - 2.5, y + dayRowHeight - 3.5, { align: 'right' });
+            const facInfo = getOptimizedFacultyText(pdf, session.faculty_name, cellW - 5);
+            pdf.setFontSize(facInfo.fontSize);
+            pdf.text(facInfo.text, x + cellW - 2.5, y + dayRowHeight - 3.5, { align: 'right' });
 
           } else if (sheet.type === 'FACULTY') {
             // Top-left: Course Code
@@ -1236,14 +1351,11 @@ export default function SchedulePage() {
             pdf.setFontSize(8.5);
             pdf.text(session.course_code || '', x + 2.5, y + 5.5);
 
-            // Top-right: Faculty Name
+            // Top-right: Faculty Name (dynamically sized)
             pdf.setFont('helvetica', 'bold');
-            pdf.setFontSize(8);
-            let fName = session.faculty_name || '';
-            if (pdf.getTextWidth(fName) > cellW / 2) {
-              fName = session.faculty_code || fName;
-            }
-            pdf.text(fName, x + cellW - 2.5, y + 5.5, { align: 'right' });
+            const facInfo = getOptimizedFacultyText(pdf, session.faculty_name, cellW / 2 - 2);
+            pdf.setFontSize(facInfo.fontSize);
+            pdf.text(facInfo.text, x + cellW - 2.5, y + 5.5, { align: 'right' });
 
             // Center: Section Name
             pdf.setFont('helvetica', 'bold');
@@ -1607,13 +1719,63 @@ export default function SchedulePage() {
               const dayColWidth = 18;
               const headerHeight = 13;
               const days = options.days;
-              const periods = options.periods;
-
-              const hasLunch = options.hasLunchBreak !== false && (options.lunchAfterPeriod || 4) > 0;
-              const lunchAfter = hasLunch ? (options.lunchAfterPeriod || 4) : 0;
-              const lunchTime = options.lunchTime || '12:25 - 13:30';
+              const periods = sheet.periods || options.periods;
+              const sheetLunch = sheet.lunchAfterPeriod || options.lunchAfterPeriod || 4;
+              const hasLunch = options.hasLunchBreak !== false && sheetLunch > 0;
+              const lunchAfter = hasLunch ? sheetLunch : 0;
+              const lunchTime = sheet.lunchTime || options.lunchTime || '12:25 - 13:30';
               const lunchLabel = options.lunchLabel || 'LUNCH';
               const lunchColWidth = hasLunch ? 18 : 0;
+
+              function getOptimizedFacultyText(pdf, name, maxWidth) {
+                if (!name) return { text: '', fontSize: 8 };
+                const raw = name.trim();
+                const candidates = [raw];
+                const parts = raw.split(/\s+/);
+                if (parts.length >= 3) {
+                  const hasTitle = /^(Dr\.|Prof\.|Mr\.|Mrs\.|Ms\.)/i.test(parts[0]);
+                  if (hasTitle) {
+                    const initials = parts.slice(1, -1).map(function(p) { return p[0].toUpperCase() + '.'; }).join(' ');
+                    candidates.push(parts[0] + ' ' + initials + ' ' + parts[parts.length - 1]);
+                    candidates.push(parts[0] + ' ' + parts[1][0].toUpperCase() + '. ' + parts[parts.length - 1]);
+                  } else {
+                    const initials = parts.slice(0, -1).map(function(p) { return p[0].toUpperCase() + '.'; }).join(' ');
+                    candidates.push(initials + ' ' + parts[parts.length - 1]);
+                    candidates.push(parts[0][0].toUpperCase() + '. ' + parts[parts.length - 1]);
+                  }
+                } else if (parts.length === 2) {
+                  const hasTitle = /^(Dr\.|Prof\.|Mr\.|Mrs\.|Ms\.)/i.test(parts[0]);
+                  if (!hasTitle) {
+                    candidates.push(parts[0][0].toUpperCase() + '. ' + parts[1]);
+                  }
+                }
+                for (const size of [8, 7.5, 7, 6.5, 6, 5.5]) {
+                  pdf.setFontSize(size);
+                  if (pdf.getTextWidth(raw) <= maxWidth) {
+                    return { text: raw, fontSize: size };
+                  }
+                }
+                for (let i = 1; i < candidates.length; i++) {
+                  const cand = candidates[i];
+                  for (const size of [7.5, 7, 6.5, 6, 5.5]) {
+                    pdf.setFontSize(size);
+                    if (pdf.getTextWidth(cand) <= maxWidth) {
+                      return { text: cand, fontSize: size };
+                    }
+                  }
+                }
+                const bestCand = candidates[candidates.length - 1];
+                pdf.setFontSize(5.5);
+                if (pdf.getTextWidth(bestCand) <= maxWidth) {
+                  return { text: bestCand, fontSize: 5.5 };
+                }
+                pdf.setFontSize(5);
+                let truncated = bestCand;
+                while (truncated.length > 3 && pdf.getTextWidth(truncated + '...') > maxWidth) {
+                  truncated = truncated.slice(0, -1);
+                }
+                return { text: truncated + '...', fontSize: 5 };
+              }
 
               const periodColWidth = (tableWidth - dayColWidth - lunchColWidth) / periods.length;
               const dayRowHeight = (tableHeight - headerHeight) / days.length;
@@ -1710,6 +1872,7 @@ export default function SchedulePage() {
 
               days.forEach((day, dIdx) => {
                 const y = tableStartY + headerHeight + dIdx * dayRowHeight;
+
                 pdf.setDrawColor(0, 0, 0);
                 pdf.setLineWidth(0.35);
                 pdf.rect(marginX, y, dayColWidth, dayRowHeight);
@@ -1742,13 +1905,9 @@ export default function SchedulePage() {
                       pdf.text((session.course_code || '').toUpperCase(), x + cellW / 2, y + dayRowHeight / 2 + 1, { align: 'center' });
 
                       pdf.setFont('helvetica', 'bold');
-                      pdf.setFontSize(8);
-                      let fac = session.faculty_name || '';
-                      if (pdf.getTextWidth(fac) > cellW - 5) {
-                        pdf.setFontSize(7);
-                        if (pdf.getTextWidth(fac) > cellW - 5) fac = session.faculty_code || fac;
-                      }
-                      pdf.text(fac, x + cellW - 2.5, y + dayRowHeight - 3.5, { align: 'right' });
+                      const facInfo = getOptimizedFacultyText(pdf, session.faculty_name, cellW - 5);
+                      pdf.setFontSize(facInfo.fontSize);
+                      pdf.text(facInfo.text, x + cellW - 2.5, y + dayRowHeight - 3.5, { align: 'right' });
                     } else if (sheet.type === 'FACULTY') {
                       pdf.setFont('helvetica', 'bold');
                       pdf.setFontSize(8.5);
@@ -1774,8 +1933,9 @@ export default function SchedulePage() {
                       pdf.text(session.course_code || '', x + 2.5, y + 5.5);
 
                       pdf.setFont('helvetica', 'bold');
-                      pdf.setFontSize(8);
-                      pdf.text(session.faculty_name || '', x + cellW - 2.5, y + 5.5, { align: 'right' });
+                      const facInfo = getOptimizedFacultyText(pdf, session.faculty_name, cellW / 2 - 2);
+                      pdf.setFontSize(facInfo.fontSize);
+                      pdf.text(facInfo.text, x + cellW - 2.5, y + 5.5, { align: 'right' });
 
                       pdf.setFont('helvetica', 'bold');
                       pdf.setFontSize(11.5);
@@ -1907,6 +2067,7 @@ export default function SchedulePage() {
             facultyList={faculty}
             roomsList={rooms}
             searchQuery={searchQuery}
+            sectionLunchMap={sectionLunchMap}
           />
 
           <UnplacedLessonsTray
@@ -1918,16 +2079,8 @@ export default function SchedulePage() {
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Top Header - No-print in print layout */}
-          <div className="no-print flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div className="shrink-0">
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 flex items-center gap-2.5 whitespace-nowrap">
-            <Calendar className="w-6 h-6 text-red-700" />
-            Classroom Timetable
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap">
+          {/* Top Actions Toolbar - No-print in print layout */}
+          <div className="no-print flex items-center justify-end gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap">
           {/* Timing Flexibility & Lunch Settings Button */}
           <Button
             size="sm"
@@ -1993,7 +2146,6 @@ export default function SchedulePage() {
             {generating ? 'Generating Timetable...' : 'Generate Timetable'}
           </Button>
         </div>
-      </div>
 
 
 
@@ -2165,7 +2317,7 @@ export default function SchedulePage() {
                         <Utensils className="w-3 h-3 text-amber-400" />
                         <span>RECESS</span>
                       </div>
-                      <div className="text-[10px] font-mono text-amber-300/90 font-semibold mt-0.5">{timingConfig.lunchTime}</div>
+                      <div className="text-[10px] font-mono text-amber-300/90 font-semibold mt-0.5">{activeLunchTime}</div>
                     </th>
                   )}
 
@@ -2331,11 +2483,11 @@ export default function SchedulePage() {
               footerDate={exportFooterDate}
               footerTag={exportFooterTag}
               sessions={sheet.sessions}
-              periods={timingConfig.periods}
+              periods={(sheet as any).periods || timingConfig.periods}
               days={displayDays}
               hasLunchBreak={timingConfig.hasLunchBreak}
-              lunchAfterPeriod={timingConfig.lunchAfterPeriod}
-              lunchTime={timingConfig.lunchTime}
+              lunchAfterPeriod={sheet.lunchAfterPeriod || sectionLunchMap[sheet.title] || timingConfig.lunchAfterPeriod}
+              lunchTime={(sheet as any).lunchTime || timingConfig.lunchTime}
               lunchLabel={timingConfig.lunchLabel}
             />
           ))}
@@ -2740,11 +2892,11 @@ export default function SchedulePage() {
                     footerDate={exportFooterDate}
                     footerTag={exportFooterTag}
                     sessions={sheet.sessions}
-                    periods={timingConfig.periods}
+                    periods={(sheet as any).periods || timingConfig.periods}
                     days={displayDays}
                     hasLunchBreak={timingConfig.hasLunchBreak}
-                    lunchAfterPeriod={timingConfig.lunchAfterPeriod}
-                    lunchTime={timingConfig.lunchTime}
+                    lunchAfterPeriod={sheet.lunchAfterPeriod || sectionLunchMap[sheet.title] || timingConfig.lunchAfterPeriod}
+                    lunchTime={(sheet as any).lunchTime || timingConfig.lunchTime}
                     lunchLabel={timingConfig.lunchLabel}
                     isPreview
                   />

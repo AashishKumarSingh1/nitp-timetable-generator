@@ -47,6 +47,7 @@ interface MasterGridProps {
   facultyList: { id: string; name: string; code?: string; color?: string | null; time_off?: string | null }[];
   roomsList: { id: string; name: string; code?: string; type?: string; color?: string | null; time_off?: string | null }[];
   searchQuery?: string;
+  sectionLunchMap?: Record<string, number>;
 }
 
 export function MasterGrid({
@@ -68,6 +69,7 @@ export function MasterGrid({
   facultyList,
   roomsList,
   searchQuery = '',
+  sectionLunchMap = {},
 }: MasterGridProps) {
   const activeDays = useMemo(() => DAYS.slice(0, workingDays), [workingDays]);
 
@@ -170,9 +172,14 @@ export function MasterGrid({
     }
 
     // Check lunch recess cross
-    if (hasLunchBreak && lunchAfterPeriod > 0) {
-      if (periodIndex <= lunchAfterPeriod && periodIndex + span - 1 > lunchAfterPeriod) {
-        return { canPlace: false, reason: `Session cannot cross lunch recess after Period ${lunchAfterPeriod}.` };
+    const targetSection = selectedDemand.sectionName;
+    const effectiveLunch = (targetSection && sectionLunchMap && sectionLunchMap[targetSection])
+      || (perspective === 'SECTIONS' && sectionLunchMap && sectionLunchMap[rowEntityId])
+      || lunchAfterPeriod;
+
+    if (hasLunchBreak && effectiveLunch > 0) {
+      if (periodIndex <= effectiveLunch && periodIndex + span - 1 > effectiveLunch) {
+        return { canPlace: false, reason: `Session cannot cross lunch recess after Period ${effectiveLunch}.` };
       }
     }
 
@@ -342,80 +349,101 @@ export function MasterGrid({
                 </td>
               </tr>
             ) : (
-              rowEntities.map((rowEntity, rowIdx) => (
-                <tr
-                  key={rowEntity.id}
-                  className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition group ${
-                    rowIdx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50/30 dark:bg-slate-800/20'
-                  }`}
-                >
-                  {/* Sticky Entity Header Column */}
-                  <th className="sticky left-0 z-20 bg-inherit p-2.5 font-medium border-r border-slate-200 dark:border-slate-800 shadow-xs text-xs">
-                    <div className="flex items-center gap-2">
-                      {rowEntity.color && (
-                        <div
-                          className="w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ backgroundColor: rowEntity.color }}
-                        />
-                      )}
-                      <div className="min-w-0">
-                        <div className="font-semibold text-slate-800 dark:text-slate-100 truncate">
-                          {rowEntity.name}
-                        </div>
-                        {rowEntity.subtitle && (
-                          <div className="text-[10px] text-slate-400 truncate">{rowEntity.subtitle}</div>
+              rowEntities.map((rowEntity, rowIdx) => {
+                const rowLunch = (perspective === 'SECTIONS' && sectionLunchMap && (sectionLunchMap[rowEntity.name] || sectionLunchMap[rowEntity.id]))
+                  || lunchAfterPeriod;
+                const hasCustomLunch = perspective === 'SECTIONS' && rowLunch !== lunchAfterPeriod;
+
+                return (
+                  <tr
+                    key={rowEntity.id}
+                    className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition group ${
+                      rowIdx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50/30 dark:bg-slate-800/20'
+                    }`}
+                  >
+                    {/* Sticky Entity Header Column */}
+                    <th className="sticky left-0 z-20 bg-inherit p-2.5 font-medium border-r border-slate-200 dark:border-slate-800 shadow-xs text-xs">
+                      <div className="flex items-center gap-2">
+                        {rowEntity.color && (
+                          <div
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: rowEntity.color }}
+                          />
                         )}
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-800 dark:text-slate-100 truncate">
+                            {rowEntity.name}
+                          </div>
+                          {rowEntity.subtitle && (
+                            <div className="text-[10px] text-slate-400 truncate">{rowEntity.subtitle}</div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </th>
+                    </th>
 
-                  {/* Period Cells across all active days */}
-                  {activeDays.map((day, dayIdx) => (
-                    <React.Fragment key={`${rowEntity.id}-${day}`}>
-                      {periods.map((period, pIdx) => {
-                        const cellKey = `${rowEntity.id}:${day}:${period.index}`;
-                        const cellSessions = cellSessionsMap.get(cellKey) || [];
-                        const isAfterLunch = hasLunchBreak && period.index === lunchAfterPeriod;
-                        const isLastPeriodOfDay = pIdx === periods.length - 1;
-                        const isDayEnd = isLastPeriodOfDay && dayIdx < activeDays.length - 1;
+                    {/* Period Cells across all active days */}
+                    {activeDays.map((day, dayIdx) => (
+                      <React.Fragment key={`${rowEntity.id}-${day}`}>
+                        {periods.map((period, pIdx) => {
+                          const cellKey = `${rowEntity.id}:${day}:${period.index}`;
+                          const cellSessions = cellSessionsMap.get(cellKey) || [];
+                          const isAfterLunch = hasLunchBreak && period.index === lunchAfterPeriod;
+                          const isCustomSectionLunchBoundary = hasLunchBreak && hasCustomLunch && period.index === rowLunch;
+                          const isLastPeriodOfDay = pIdx === periods.length - 1;
+                          const isDayEnd = isLastPeriodOfDay && dayIdx < activeDays.length - 1;
 
-                        // Check if this cell is entirely part of an ongoing multi-period span started in an earlier period
-                        const isContinuation = cellSessions.length > 0 && cellSessions.every((s) => s.period_index < period.index);
-                        if (isContinuation) {
-                          return isAfterLunch ? (
-                            <td
-                              key={`lunch-${cellKey}`}
-                              className="bg-amber-100/40 dark:bg-amber-950/20 border-r-2 border-amber-300/60 dark:border-amber-800 text-center p-0.5 select-none w-9 min-w-[36px]"
-                            >
-                              <div className="h-full flex items-center justify-center">
-                                <div className="w-0.5 h-8 bg-amber-300 dark:bg-amber-700/60 rounded" />
-                              </div>
-                            </td>
-                          ) : null;
-                        }
+                          // Check if this cell is entirely part of an ongoing multi-period span started in an earlier period
+                          const isContinuation = cellSessions.length > 0 && cellSessions.every((s) => s.period_index < period.index);
+                          if (isContinuation) {
+                            return isAfterLunch ? (
+                              <td
+                                key={`lunch-${cellKey}`}
+                                className={`${
+                                  hasCustomLunch
+                                    ? 'bg-slate-100/50 dark:bg-slate-800/40 border-r border-dashed border-slate-300 dark:border-slate-700'
+                                    : 'bg-amber-100/40 dark:bg-amber-950/20 border-r-2 border-amber-300/60 dark:border-amber-800'
+                                } text-center p-0.5 select-none w-9 min-w-[36px]`}
+                              >
+                                <div className="h-full flex items-center justify-center">
+                                  {hasCustomLunch ? (
+                                    <span
+                                      className="text-[8px] font-bold text-amber-600 dark:text-amber-400 leading-tight px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 border border-amber-300/50"
+                                      title={`Recess for ${rowEntity.name} is scheduled after Period ${rowLunch}`}
+                                    >
+                                      P{rowLunch}
+                                    </span>
+                                  ) : (
+                                    <div className="w-0.5 h-8 bg-amber-300 dark:bg-amber-700/60 rounded" />
+                                  )}
+                                </div>
+                              </td>
+                            ) : null;
+                          }
 
-                        // Determine column span for sessions starting in this period
-                        const startingSessions = cellSessions.filter((s) => s.period_index === period.index);
-                        const sessionSpan = startingSessions.length > 0
-                          ? Math.max(1, ...startingSessions.map((s) => s.span || 1))
-                          : 1;
+                          // Determine column span for sessions starting in this period
+                          const startingSessions = cellSessions.filter((s) => s.period_index === period.index);
+                          const sessionSpan = startingSessions.length > 0
+                            ? Math.max(1, ...startingSessions.map((s) => s.span || 1))
+                            : 1;
 
-                        const spansToDayEnd = pIdx + (sessionSpan - 1) >= periods.length - 1 && dayIdx < activeDays.length - 1;
+                          const spansToDayEnd = pIdx + (sessionSpan - 1) >= periods.length - 1 && dayIdx < activeDays.length - 1;
 
-                        // If selectedDemand is active, check feasibility for placement
-                        const candidate = selectedDemand
-                          ? checkPlacementCandidate(rowEntity.id, day, period.index)
-                          : null;
+                          // If selectedDemand is active, check feasibility for placement
+                          const candidate = selectedDemand
+                            ? checkPlacementCandidate(rowEntity.id, day, period.index)
+                            : null;
 
-                        return (
-                          <React.Fragment key={`${cellKey}`}>
-                            <td
-                              colSpan={sessionSpan}
-                              className={`p-1 ${
-                                spansToDayEnd || isDayEnd
-                                  ? 'border-r-2 border-r-black dark:border-r-zinc-300'
-                                  : 'border-r border-slate-100 dark:border-slate-800'
-                              } relative transition align-top ${
+                          return (
+                            <React.Fragment key={`${cellKey}`}>
+                              <td
+                                colSpan={sessionSpan}
+                                className={`p-1 ${
+                                  spansToDayEnd || isDayEnd
+                                    ? 'border-r-2 border-r-black dark:border-r-zinc-300'
+                                    : isCustomSectionLunchBoundary
+                                    ? 'border-r-4 border-r-amber-500 dark:border-r-amber-400'
+                                    : 'border-r border-slate-100 dark:border-slate-800'
+                                } relative transition align-top ${
                                 densityStyles.cellMinHeight
                               } ${
                                 candidate
@@ -561,9 +589,24 @@ export function MasterGrid({
 
                             {/* Lunch Recess Column Divider */}
                             {isAfterLunch && (
-                              <td className="bg-amber-100/40 dark:bg-amber-950/20 border-r-2 border-amber-300/60 dark:border-amber-800 text-center p-0.5 select-none w-9 min-w-[36px]">
+                              <td
+                                className={`${
+                                  hasCustomLunch
+                                    ? 'bg-slate-100/50 dark:bg-slate-800/40 border-r border-dashed border-slate-300 dark:border-slate-700'
+                                    : 'bg-amber-100/40 dark:bg-amber-950/20 border-r-2 border-amber-300/60 dark:border-amber-800'
+                                } text-center p-0.5 select-none w-9 min-w-[36px]`}
+                              >
                                 <div className="h-full flex items-center justify-center">
-                                  <div className="w-0.5 h-8 bg-amber-300 dark:bg-amber-700/60 rounded" />
+                                  {hasCustomLunch ? (
+                                    <span
+                                      className="text-[8px] font-bold text-amber-600 dark:text-amber-400 leading-tight px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 border border-amber-300/50"
+                                      title={`Recess for ${rowEntity.name} is scheduled after Period ${rowLunch}`}
+                                    >
+                                      P{rowLunch}
+                                    </span>
+                                  ) : (
+                                    <div className="w-0.5 h-8 bg-amber-300 dark:bg-amber-700/60 rounded" />
+                                  )}
                                 </div>
                               </td>
                             )}
@@ -573,8 +616,9 @@ export function MasterGrid({
                     </React.Fragment>
                   ))}
                 </tr>
-              ))
-            )}
+              );
+            })
+          )}
           </tbody>
         </table>
       </div>
