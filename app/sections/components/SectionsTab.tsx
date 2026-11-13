@@ -192,7 +192,7 @@ export function SectionsTab({
                             Semester {sec.semester}
                           </span>
                           <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/60 text-[10px] font-medium whitespace-nowrap">
-                            Lunch: After P{sec.lunch_after_period || 4}
+                            Lunch: {sec.lunch_after_period === 3 ? 'After P3 (11:30 - 12:25)' : sec.lunch_after_period === 5 ? 'After P5 (13:30 - 14:25)' : 'After P4 (12:25 - 13:30)'}
                           </span>
                         </div>
                       </td>

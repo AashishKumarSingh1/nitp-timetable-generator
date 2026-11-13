@@ -146,9 +146,9 @@ export function SectionModal({
           value={lunchAfterPeriod}
           onChange={(e) => setLunchAfterPeriod(Number(e.target.value))}
         >
-          <option value={3}>After Period 3 (11:30 - 12:25)</option>
-          <option value={4}>After Period 4 (12:25 - 13:30 - Standard)</option>
-          <option value={5}>After Period 5 (13:30 - 14:25)</option>
+          <option value={3}>Early Lunch: Recess after Period 3 (11:30 - 12:25)</option>
+          <option value={4}>Standard Lunch: Recess after Period 4 (12:25 - 13:30)</option>
+          <option value={5}>Late Lunch: Recess after Period 5 (13:30 - 14:25)</option>
         </Select>
 
         <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">

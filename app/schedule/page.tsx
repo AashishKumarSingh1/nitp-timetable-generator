@@ -59,6 +59,7 @@ import {
   mergeAdjacentSessions,
   isSameSection,
   calculateSessionSpans,
+  getSectionTimingDetails,
   type LessonFormat,
 } from './types';
 
@@ -848,13 +849,15 @@ export default function SchedulePage() {
   const displayDays = workingDays === 6 ? DAYS : DAYS.slice(0, 5);
 
   // Divide periods around lunch break for interactive screen view
-  const lunchAfter = timingConfig.hasLunchBreak
-    ? (filterMode === 'SECTION' && selectedSection && sectionLunchMap[selectedSection]
-        ? sectionLunchMap[selectedSection]
-        : timingConfig.lunchAfterPeriod)
-    : -1;
-  const morningPeriods = lunchAfter > 0 ? timingConfig.periods.slice(0, lunchAfter) : timingConfig.periods;
-  const afternoonPeriods = lunchAfter > 0 ? timingConfig.periods.slice(lunchAfter) : [];
+  const activeSecLunch = (filterMode === 'SECTION' && selectedSection && sectionLunchMap[selectedSection])
+    ? sectionLunchMap[selectedSection]
+    : timingConfig.lunchAfterPeriod;
+  const currentTiming = getSectionTimingDetails(activeSecLunch, timingConfig.preset);
+  const activePeriods = filterMode === 'SECTION' ? currentTiming.periods : timingConfig.periods;
+  const activeLunchTime = filterMode === 'SECTION' ? currentTiming.lunchTime : timingConfig.lunchTime;
+  const lunchAfter = timingConfig.hasLunchBreak ? activeSecLunch : -1;
+  const morningPeriods = lunchAfter > 0 ? activePeriods.slice(0, lunchAfter) : activePeriods;
+  const afternoonPeriods = lunchAfter > 0 ? activePeriods.slice(lunchAfter) : [];
 
   // Merged sessions for display, export, and matrix (merges adjacent 1h slots of same class)
   const displaySessions = useMemo(
@@ -948,22 +951,33 @@ export default function SchedulePage() {
   const exportSheets = useMemo(() => {
     if (exportType === 'SECTION') {
       if (exportScope === 'SPECIFIC') {
+        const secName = exportSpecificSection || 'Section';
+        const sLunch = sectionLunchMap[secName] || timingConfig.lunchAfterPeriod;
+        const timingDetails = getSectionTimingDetails(sLunch, timingConfig.preset);
         return [
           {
-            title: exportSpecificSection || 'Section',
+            title: secName,
             type: 'SECTION' as const,
-            sessions: sessionsBySection.get(exportSpecificSection) || [],
-            lunchAfterPeriod: sectionLunchMap[exportSpecificSection] || timingConfig.lunchAfterPeriod,
+            sessions: sessionsBySection.get(secName) || [],
+            lunchAfterPeriod: sLunch,
+            periods: timingDetails.periods,
+            lunchTime: timingDetails.lunchTime,
           },
         ];
       }
       const list = sections.length > 0 ? sections : Array.from(sessionsBySection.keys());
-      return list.map((sec) => ({
-        title: sec,
-        type: 'SECTION' as const,
-        sessions: sessionsBySection.get(sec) || [],
-        lunchAfterPeriod: sectionLunchMap[sec] || timingConfig.lunchAfterPeriod,
-      }));
+      return list.map((sec) => {
+        const sLunch = sectionLunchMap[sec] || timingConfig.lunchAfterPeriod;
+        const timingDetails = getSectionTimingDetails(sLunch, timingConfig.preset);
+        return {
+          title: sec,
+          type: 'SECTION' as const,
+          sessions: sessionsBySection.get(sec) || [],
+          lunchAfterPeriod: sLunch,
+          periods: timingDetails.periods,
+          lunchTime: timingDetails.lunchTime,
+        };
+      });
     } else if (exportType === 'FACULTY') {
       if (exportScope === 'SPECIFIC') {
         const fac = faculty.find((f) => f.id === exportSpecificFacultyId);
@@ -973,6 +987,8 @@ export default function SchedulePage() {
             type: 'FACULTY' as const,
             sessions: sessionsByFaculty.get(exportSpecificFacultyId) || [],
             lunchAfterPeriod: timingConfig.lunchAfterPeriod,
+            periods: timingConfig.periods,
+            lunchTime: timingConfig.lunchTime,
           },
         ];
       }
@@ -981,6 +997,8 @@ export default function SchedulePage() {
         type: 'FACULTY' as const,
         sessions: sessionsByFaculty.get(fac.id) || [],
         lunchAfterPeriod: timingConfig.lunchAfterPeriod,
+        periods: timingConfig.periods,
+        lunchTime: timingConfig.lunchTime,
       }));
     } else {
       // ROOM / CLASSROOM WISE
@@ -992,6 +1010,8 @@ export default function SchedulePage() {
             type: 'ROOM' as const,
             sessions: sessionsByRoom.get(exportSpecificRoomId) || [],
             lunchAfterPeriod: timingConfig.lunchAfterPeriod,
+            periods: timingConfig.periods,
+            lunchTime: timingConfig.lunchTime,
           },
         ];
       }
@@ -1000,6 +1020,8 @@ export default function SchedulePage() {
         type: 'ROOM' as const,
         sessions: sessionsByRoom.get(rm.id) || [],
         lunchAfterPeriod: timingConfig.lunchAfterPeriod,
+        periods: timingConfig.periods,
+        lunchTime: timingConfig.lunchTime,
       }));
     }
   }, [
@@ -1016,6 +1038,9 @@ export default function SchedulePage() {
     sessionsByRoom,
     sectionLunchMap,
     timingConfig.lunchAfterPeriod,
+    timingConfig.preset,
+    timingConfig.periods,
+    timingConfig.lunchTime,
   ]);
 
   // =========================================================================
@@ -1099,6 +1124,8 @@ export default function SchedulePage() {
       type: 'SECTION' | 'FACULTY' | 'ROOM';
       sessions: ClassSession[];
       lunchAfterPeriod?: number;
+      periods?: PeriodSlot[];
+      lunchTime?: string;
     },
     options: {
       instituteHeader: string;
@@ -1121,12 +1148,12 @@ export default function SchedulePage() {
     const headerHeight = 13;
 
     const days = options.days || ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
-    const periods = options.periods;
+    const periods = sheet.periods || options.periods;
 
     const sheetLunch = sheet.lunchAfterPeriod ?? options.lunchAfterPeriod ?? 4;
     const hasLunch = options.hasLunchBreak !== false && sheetLunch > 0;
     const lunchAfter = hasLunch ? sheetLunch : 0;
-    const lunchTime = options.lunchTime || '12:25 - 13:30';
+    const lunchTime = sheet.lunchTime || options.lunchTime || '12:25 - 13:30';
     const lunchLabel = options.lunchLabel || 'LUNCH';
     const lunchColWidth = hasLunch ? 18 : 0;
 
@@ -1692,11 +1719,11 @@ export default function SchedulePage() {
               const dayColWidth = 18;
               const headerHeight = 13;
               const days = options.days;
-              const periods = options.periods;
+              const periods = sheet.periods || options.periods;
               const sheetLunch = sheet.lunchAfterPeriod || options.lunchAfterPeriod || 4;
               const hasLunch = options.hasLunchBreak !== false && sheetLunch > 0;
               const lunchAfter = hasLunch ? sheetLunch : 0;
-              const lunchTime = options.lunchTime || '12:25 - 13:30';
+              const lunchTime = sheet.lunchTime || options.lunchTime || '12:25 - 13:30';
               const lunchLabel = options.lunchLabel || 'LUNCH';
               const lunchColWidth = hasLunch ? 18 : 0;
 
@@ -2040,6 +2067,7 @@ export default function SchedulePage() {
             facultyList={faculty}
             roomsList={rooms}
             searchQuery={searchQuery}
+            sectionLunchMap={sectionLunchMap}
           />
 
           <UnplacedLessonsTray
@@ -2289,7 +2317,7 @@ export default function SchedulePage() {
                         <Utensils className="w-3 h-3 text-amber-400" />
                         <span>RECESS</span>
                       </div>
-                      <div className="text-[10px] font-mono text-amber-300/90 font-semibold mt-0.5">{timingConfig.lunchTime}</div>
+                      <div className="text-[10px] font-mono text-amber-300/90 font-semibold mt-0.5">{activeLunchTime}</div>
                     </th>
                   )}
 
@@ -2455,11 +2483,11 @@ export default function SchedulePage() {
               footerDate={exportFooterDate}
               footerTag={exportFooterTag}
               sessions={sheet.sessions}
-              periods={timingConfig.periods}
+              periods={(sheet as any).periods || timingConfig.periods}
               days={displayDays}
               hasLunchBreak={timingConfig.hasLunchBreak}
               lunchAfterPeriod={sheet.lunchAfterPeriod || sectionLunchMap[sheet.title] || timingConfig.lunchAfterPeriod}
-              lunchTime={timingConfig.lunchTime}
+              lunchTime={(sheet as any).lunchTime || timingConfig.lunchTime}
               lunchLabel={timingConfig.lunchLabel}
             />
           ))}
@@ -2864,11 +2892,11 @@ export default function SchedulePage() {
                     footerDate={exportFooterDate}
                     footerTag={exportFooterTag}
                     sessions={sheet.sessions}
-                    periods={timingConfig.periods}
+                    periods={(sheet as any).periods || timingConfig.periods}
                     days={displayDays}
                     hasLunchBreak={timingConfig.hasLunchBreak}
                     lunchAfterPeriod={sheet.lunchAfterPeriod || sectionLunchMap[sheet.title] || timingConfig.lunchAfterPeriod}
-                    lunchTime={timingConfig.lunchTime}
+                    lunchTime={(sheet as any).lunchTime || timingConfig.lunchTime}
                     lunchLabel={timingConfig.lunchLabel}
                     isPreview
                   />

@@ -112,6 +112,94 @@ export const DEFAULT_TIMING_CONFIG: TimetableTimingConfig = {
   lunchLabel: 'LUNCH RECESS',
 };
 
+/**
+ * Returns strictly chronological period time slots and lunch break timing
+ * tailored to a specific section's custom lunch recess slot.
+ */
+export function getSectionTimingDetails(
+  lunchAfterPeriod: number = 4,
+  basePreset: 'NITP_OFFICIAL' | 'STANDARD_8' | 'CUSTOM' = 'NITP_OFFICIAL'
+): {
+  periods: PeriodSlot[];
+  lunchTime: string;
+} {
+  if (basePreset === 'STANDARD_8') {
+    if (lunchAfterPeriod === 3) {
+      return {
+        periods: [
+          { index: 1, time: '09:00 - 10:00', label: '1' },
+          { index: 2, time: '10:00 - 11:00', label: '2' },
+          { index: 3, time: '11:00 - 12:00', label: '3' },
+          { index: 4, time: '13:00 - 14:00', label: '4' },
+          { index: 5, time: '14:00 - 15:00', label: '5' },
+          { index: 6, time: '15:00 - 16:00', label: '6' },
+          { index: 7, time: '16:00 - 17:00', label: '7' },
+          { index: 8, time: '17:00 - 18:00', label: '8' },
+        ],
+        lunchTime: '12:00 - 13:00',
+      };
+    }
+    if (lunchAfterPeriod === 5) {
+      return {
+        periods: [
+          { index: 1, time: '09:00 - 10:00', label: '1' },
+          { index: 2, time: '10:00 - 11:00', label: '2' },
+          { index: 3, time: '11:00 - 12:00', label: '3' },
+          { index: 4, time: '12:00 - 13:00', label: '4' },
+          { index: 5, time: '13:00 - 14:00', label: '5' },
+          { index: 6, time: '15:00 - 16:00', label: '6' },
+          { index: 7, time: '16:00 - 17:00', label: '7' },
+          { index: 8, time: '17:00 - 18:00', label: '8' },
+        ],
+        lunchTime: '14:00 - 15:00',
+      };
+    }
+    return {
+      periods: STANDARD_8_PERIODS,
+      lunchTime: '13:00 - 14:00',
+    };
+  }
+
+  // NIT Patna Official Timings:
+  if (lunchAfterPeriod === 3) {
+    return {
+      periods: [
+        { index: 1, time: '8:30 - 9:25', label: '1' },
+        { index: 2, time: '9:30 - 10:25', label: '2' },
+        { index: 3, time: '10:30 - 11:25', label: '3' },
+        { index: 4, time: '12:30 - 13:25', label: '4' },
+        { index: 5, time: '13:30 - 14:25', label: '5' },
+        { index: 6, time: '14:30 - 15:25', label: '6' },
+        { index: 7, time: '15:30 - 16:25', label: '7' },
+        { index: 8, time: '16:30 - 17:25', label: '8' },
+      ],
+      lunchTime: '11:30 - 12:25',
+    };
+  }
+
+  if (lunchAfterPeriod === 5) {
+    return {
+      periods: [
+        { index: 1, time: '8:30 - 9:25', label: '1' },
+        { index: 2, time: '9:30 - 10:25', label: '2' },
+        { index: 3, time: '10:30 - 11:25', label: '3' },
+        { index: 4, time: '11:30 - 12:25', label: '4' },
+        { index: 5, time: '12:30 - 13:25', label: '5' },
+        { index: 6, time: '14:30 - 15:25', label: '6' },
+        { index: 7, time: '15:30 - 16:25', label: '7' },
+        { index: 8, time: '16:30 - 17:25', label: '8' },
+      ],
+      lunchTime: '13:30 - 14:25',
+    };
+  }
+
+  // Standard (After Period 4)
+  return {
+    periods: NITP_OFFICIAL_PERIODS,
+    lunchTime: '12:25 - 13:30',
+  };
+}
+
 export const DAYS: ('MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY')[] = [
   'MONDAY',
   'TUESDAY',
